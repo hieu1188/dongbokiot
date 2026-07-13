@@ -1,0 +1,142 @@
+"""
+sync.py — Bộ não đồng bộ.
+
+- Một hàng đợi (queue) + MỘT worker duy nhất xử lý tuần tự => không tranh chấp,
+  không trừ tồn đè lên nhau khi 2 đơn về gần như cùng lúc.
+- Luật: "bán ở đâu cũng khớp sang tài khoản kia".
+  Khi tài khoản A báo mã 'code' có tồn mới = onhand -> ép tài khoản còn lại về onhand.
+- Chống loop bằng expected_echo (store.py) + chốt "đã bằng nhau thì không ghi".
+"""
+import queue
+import threading
+
+import config
+import store
+import notify
+from kiotviet_client import KiotVietClient
+
+# Mỗi tài khoản 1 client (tái dùng token)
+_clients = {
+    config.KV1.retailer: KiotVietClient(config.KV1),
+    config.KV2.retailer: KiotVietClient(config.KV2),
+}
+
+_q: "queue.Queue[dict]" = queue.Queue()
+
+
+def enqueue(event: dict):
+    """server.py gọi hàm này để đẩy sự kiện vào hàng đợi rồi trả 200 ngay."""
+    _q.put(event)
+
+
+def _handle(event: dict):
+    """Điều phối theo loại sự kiện: 'stock' (đồng bộ tồn) hoặc 'product' (tạo mới)."""
+    if event.get("kind") == "product":
+        _handle_product(event)
+    else:
+        _handle_stock(event)
+
+
+def _handle_stock(event: dict):
+    src = event["source_retailer"]
+    code = event["code"]
+    onhand = event["onhand"]
+    cost = event.get("cost")  # giá vốn kèm theo (tài liệu 2.11.5) -> ghi sang KV kia
+    notif_id = event.get("notif_id") or f"{src}:{code}:{onhand}"
+
+    # 1) Chống xử lý trùng cùng một webhook
+    if store.seen_before(notif_id):
+        return
+
+    # 2) Chống loop: thay đổi này có phải do CHÍNH TA vừa ghi vào 'src' không?
+    if store.consume_expected_echo(src, code, onhand):
+        print(f"[SKIP-echo] {src} {code}={onhand} (do ta tự ghi, bỏ qua)")
+        return
+
+    # 3) Đồng bộ sang tài khoản còn lại
+    target = config.other_account(src)
+    target_client = _clients[target.retailer]
+
+    # Đánh dấu TRƯỚC khi ghi: lát nữa target sẽ bắn webhook onhand này -> ta lờ đi
+    store.mark_expected_echo(target.retailer, code, onhand)
+
+    try:
+        r = target_client.set_onhand(code, onhand, dry_run=config.DRY_RUN, cost=cost)
+        print(f"[{r['result']}] {src} -> {target.name}: {code} "
+              f"{r['old']} -> {r['new']} (cost={cost})")
+        store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
+                       r["old"], r["new"], cost, r["result"], notif_id=notif_id,
+                       reason="stock")
+    except Exception as e:  # noqa
+        print(f"[ERROR] đồng bộ {code} sang {target.name} lỗi: {e}")
+        store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
+                       None, onhand, cost, "ERROR", detail=str(e), notif_id=notif_id,
+                       reason="stock")
+        notify.send(f"⛔ Lỗi ghi tồn '{code}' sang {target.name} (đặt {onhand}): {e}\n"
+                    f"Chạy: python reconcile.py --retry-errors  để bù lại.")
+
+
+def _handle_product(event: dict):
+    """Nếu mã hàng chưa có ở tài khoản đích -> tạo mới (để mirror tồn chạy được)."""
+    src = event["source_retailer"]
+    code = event["code"]
+
+    if store.seen_before(event.get("notif_id") or f"{src}:product:{code}"):
+        return
+
+    target = config.other_account(src)
+    tc = _clients[target.retailer]
+
+    try:
+        if tc.get_product_by_code(code):
+            return  # đã tồn tại -> không tạo lại (cũng chống loop)
+    except Exception as e:  # noqa
+        print(f"[PRODUCT] lỗi kiểm tra {code} ở {target.name}: {e}")
+        return
+
+    src_name = config.ACCOUNTS[src].name
+    onhand = event.get("onhand", 0)
+    cost = event.get("cost")
+
+    if not config.AUTO_CREATE_PRODUCT:
+        print(f"[PRODUCT] {code} chưa có ở {target.name} (AUTO_CREATE tắt) -> bỏ qua")
+        store.log_sync("product", src_name, target.name, code, None, onhand, cost,
+                       "SKIP_DISABLED", detail=event.get("name") or "")
+        return
+
+    if config.DRY_RUN:
+        print(f"[DRY_RUN] would create sản phẩm '{code}' ({event.get('name')}) sang {target.name}")
+        store.log_sync("product", src_name, target.name, code, None, onhand, cost,
+                       "DRY_RUN", detail=event.get("name") or "")
+        return
+
+    try:
+        tc.create_product(code=code, name=event.get("name"), unit=event.get("unit"),
+                          base_price=event.get("base_price"),
+                          onhand=onhand, cost=cost)
+        print(f"[PRODUCT] ✔ tạo '{code}' sang {target.name}")
+        store.log_sync("product", src_name, target.name, code, None, onhand, cost,
+                       "CREATED", detail=event.get("name") or "", reason="product")
+    except Exception as e:  # noqa
+        print(f"[ERROR] tạo sản phẩm {code} sang {target.name} lỗi: {e}")
+        store.log_sync("product", src_name, target.name, code, None, onhand, cost,
+                       "ERROR", detail=str(e), reason="product")
+        notify.send(f"⛔ Lỗi tạo sản phẩm '{code}' sang {target.name}: {e}")
+
+
+def _worker():
+    while True:
+        event = _q.get()
+        try:
+            _handle(event)
+        except Exception as e:  # noqa
+            print(f"[WORKER-ERROR] {e}")
+        finally:
+            _q.task_done()
+
+
+def start_worker():
+    store.init_db()
+    t = threading.Thread(target=_worker, daemon=True, name="sync-worker")
+    t.start()
+    print("✔ Sync worker đã chạy.")

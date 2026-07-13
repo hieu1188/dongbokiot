@@ -1,0 +1,9 @@
+.env
+config.json
+baocao_pnl/config.json
+sync_state.db
+sync_state.db-wal
+sync_state.db-shm
+snapshots/
+__pycache__/
+*.pyc

@@ -1,0 +1,23 @@
+{
+  "accounts": [
+    {
+      "name": "CHINH",
+      "retailer": "ten_gian_hang_1",
+      "client_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "client_secret": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    },
+    {
+      "name": "PHU",
+      "retailer": "ten_gian_hang_2",
+      "client_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "client_secret": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    }
+  ],
+  "fees": {
+    "Shopee": 23,
+    "TikTok": 23,
+    "default": 0
+  },
+  "shipping_per_order": 0,
+  "internal_customer_names": []
+}
