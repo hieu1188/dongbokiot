@@ -39,6 +39,11 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
     Phiếu nhập thì phá giá vốn + tạo công nợ ảo, nên bị loại. (Đã tra tài liệu.)
 - **3 lớp an toàn**: idempotency (`processed`), chống loop (`expected_echo` +
   "bằng nhau thì không ghi"), hàng đợi 1 worker theo SKU.
+- **BẢO VỆ KHO CHUẨN KV1 (PROTECT_MASTER)**: sync 2 chiều nên KV2 có thể ghi vào KV1
+  (khi KV2 bán → KV1 phải giảm). Nhưng KV1 là kho chuẩn, nhập hàng CHỈ ở KV1 → server
+  **CHỈ được GIẢM KV1**, CHẶN mọi lệnh từ KV2 định TĂNG KV1 (nhập nhầm/trả hàng/lỗi dữ
+  liệu) + cảnh báo Telegram ngay (result `BLOCKED_INCREASE`). Giảm > `MASTER_MAX_DROP`
+  thì vẫn ghi nhưng cảnh báo. → KV1 không bao giờ bị thổi phồng oan (chống oversell).
 - **Bảo mật webhook**: secret trong URL + chữ ký `X-Hub-Signature` (HMAC-SHA256).
   ⚠️ Trả 4xx là KiotViet TỰ TẮT webhook → chỉ trả 401 khi chữ ký sai thật.
 - **Giá vốn**: lấy `Cost` ngay trong webhook `stock.update` → set sang KV2, tránh giá vốn ảo.

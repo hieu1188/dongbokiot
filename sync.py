@@ -57,6 +57,27 @@ def _handle_stock(event: dict):
     target = config.other_account(src)
     target_client = _clients[target.retailer]
 
+    # 3b) BẢO VỆ KHO CHUẨN KV1: nếu đang định ghi vào KV1 (tức nguồn là KV2),
+    #     CHỈ cho GIẢM (do bán ở KV2). CHẶN nếu định TĂNG (nhập nhầm/trả hàng/lỗi dữ liệu)
+    #     -> KV1 không bao giờ bị thổi phồng oan. Cảnh báo NGAY để xử lý tay.
+    if config.PROTECT_MASTER and target.retailer == config.KV1.retailer:
+        try:
+            cur = target_client.get_onhand(code)
+        except Exception:  # noqa
+            cur = None
+        if cur is not None and onhand > cur:
+            msg = (f"⛔ CHẶN đồng bộ ngược: KV2 muốn TĂNG tồn KV1 '{code}': "
+                   f"{cur} → {onhand}. KV1 là kho CHUẨN, không nhận tăng từ KV2. "
+                   f"Nếu là hàng trả/nhập thật thì chỉnh TAY ở KV1.")
+            print(msg); notify.send(msg)
+            store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
+                           cur, onhand, cost, "BLOCKED_INCREASE",
+                           detail="bao ve kho chuan", notif_id=notif_id, reason="guard")
+            return
+        if cur is not None and (cur - onhand) > config.MASTER_MAX_DROP:
+            notify.send(f"⚠ Đồng bộ ngược GIẢM MẠNH tồn KV1 '{code}': {cur} → {onhand} "
+                        f"(giảm {cur - onhand}). Đã đồng bộ — kiểm tra nếu bất thường.")
+
     # Đánh dấu TRƯỚC khi ghi: lát nữa target sẽ bắn webhook onhand này -> ta lờ đi
     store.mark_expected_echo(target.retailer, code, onhand)
 

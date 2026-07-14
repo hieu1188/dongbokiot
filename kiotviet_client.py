@@ -31,6 +31,19 @@ def _epoch_to_vn(ts: float) -> datetime:
     return datetime.fromtimestamp(ts, VN_TZ)
 
 
+def _req_with_retry(method, url, tries=4, **kw):
+    """Gọi HTTP, tự thử lại khi KiotViet trả 429 (giới hạn tốc độ). verify=VERIFY_TLS."""
+    kw.setdefault("verify", VERIFY_TLS)
+    r = None
+    for i in range(tries):
+        r = requests.request(method, url, **kw)
+        if r.status_code == 429:
+            time.sleep(2 * (i + 1))
+            continue
+        return r
+    return r
+
+
 def _parse_vn_ts(s):
     """'2026-07-12T08:45:17.3000000' (giờ VN) -> epoch giây. None nếu không parse được."""
     if not s:
@@ -91,7 +104,7 @@ class KiotVietClient:
     def get_product_by_code(self, code: str) -> dict | None:
         """Lấy thông tin 1 sản phẩm theo mã hàng (SKU)."""
         url = f"{BASE_URL}/products/code/{requests.utils.quote(code)}"
-        r = requests.get(url, headers=self._headers(), timeout=15, verify=VERIFY_TLS)
+        r = _req_with_retry("GET", url, headers=self._headers(), timeout=15)
         if r.status_code == 404:
             return None
         r.raise_for_status()
@@ -274,8 +287,8 @@ class KiotVietClient:
             "basePrice": product.get("basePrice"),
             "inventories": inventories,
         }
-        r = requests.put(f"{BASE_URL}/products/{pid}", json=body,
-                         headers=self._headers(), timeout=25, verify=VERIFY_TLS)
+        r = _req_with_retry("PUT", f"{BASE_URL}/products/{pid}", json=body,
+                            headers=self._headers(), timeout=25)
         r.raise_for_status()
         return True
 
@@ -299,8 +312,8 @@ class KiotVietClient:
             body["unit"] = unit
         if base_price is not None:
             body["basePrice"] = base_price
-        r = requests.post(f"{BASE_URL}/products", json=body,
-                         headers=self._headers(), timeout=25, verify=VERIFY_TLS)
+        r = _req_with_retry("POST", f"{BASE_URL}/products", json=body,
+                            headers=self._headers(), timeout=25)
         r.raise_for_status()
         return r.json()
 
