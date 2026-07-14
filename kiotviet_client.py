@@ -83,14 +83,20 @@ class KiotVietClient:
         """Dựng/làm mới bảng {code: id} bằng cách quét /products (mã trả về bình thường)."""
         if not force and self._code_id and (time.time() - self._code_id_ts) < 600:
             return
-        idx, cur = {}, 0
+        # orderBy=id để phân trang ỔN ĐỊNH (KiotViet mặc định sắp không ổn -> sót mã).
+        idx, cur, seen = {}, 0, set()
         while True:
-            r = _req_with_retry("GET", f"{BASE_URL}/products?pageSize=100&currentItem={cur}",
+            r = _req_with_retry("GET", f"{BASE_URL}/products?pageSize=100&currentItem={cur}"
+                                f"&orderBy=id&orderDirection=Asc",
                                 headers=self._headers(), timeout=30)
             r.raise_for_status()
             data = r.json().get("data", [])
             if not data:
                 break
+            ids = {p.get("id") for p in data}
+            if ids and ids.issubset(seen):
+                break  # lặp trang cuối -> dừng
+            seen.update(ids)
             for p in data:
                 if p.get("code") and p.get("id") is not None:
                     idx[p["code"]] = p["id"]
@@ -148,11 +154,10 @@ class KiotVietClient:
         r = _req_with_retry("GET", url, headers=self._headers(), timeout=15)
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 404:
-            return None
-        # 400/420...: mã có ký tự đặc biệt (*, +, #) khiến endpoint tra-theo-mã lỗi.
-        # -> Fallback: tra theo ID (endpoint /products/{id} không dính ký tự đặc biệt).
-        if r.status_code in (400, 420):
+        # Mã có ký tự đặc biệt (*, +, #, (, )...) khiến endpoint tra-theo-mã trả
+        # 400/404/420 DÙ sản phẩm CÓ tồn tại. -> Fallback: tra theo ID (bảng mã->ID).
+        # Nếu mã thật sự không có (không trong bảng tra) -> None.
+        if r.status_code in (400, 404, 420):
             pid = self._id_for_code(code)
             if pid is not None:
                 return self._get_product_by_id(pid)
