@@ -39,11 +39,12 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
     Phiếu nhập thì phá giá vốn + tạo công nợ ảo, nên bị loại. (Đã tra tài liệu.)
 - **3 lớp an toàn**: idempotency (`processed`), chống loop (`expected_echo` +
   "bằng nhau thì không ghi"), hàng đợi 1 worker theo SKU.
-- **BẢO VỆ KHO CHUẨN KV1 (PROTECT_MASTER)**: sync 2 chiều nên KV2 có thể ghi vào KV1
-  (khi KV2 bán → KV1 phải giảm). Nhưng KV1 là kho chuẩn, nhập hàng CHỈ ở KV1 → server
-  **CHỈ được GIẢM KV1**, CHẶN mọi lệnh từ KV2 định TĂNG KV1 (nhập nhầm/trả hàng/lỗi dữ
-  liệu) + cảnh báo Telegram ngay (result `BLOCKED_INCREASE`). Giảm > `MASTER_MAX_DROP`
-  thì vẫn ghi nhưng cảnh báo. → KV1 không bao giờ bị thổi phồng oan (chống oversell).
+- **GIÁM SÁT chiều KV2→KV1 (PROTECT_MASTER, KHÔNG chặn)**: KV1/KV2 dùng CHUNG 1 kho
+  vật lý nên MỌI thay đổi thật ở KV2 (bán/**TRẢ HÀNG**/nhập) đều PHẢI truyền sang KV1,
+  kể cả TĂNG (trả hàng làm tồn tăng → KV1 phải tăng). ⚠ BÀI HỌC: bản đầu CHẶN mọi lệnh
+  tăng từ KV2 → chặn nhầm trả hàng + spam Telegram khi lệch số lẻ. NAY: **không chặn**,
+  luôn đồng bộ; chỉ **CẢNH BÁO** khi tăng ≥ `GUARD_MIN_BLOCK` (mặc định 50, đề phòng nhập
+  sai) hoặc giảm mạnh > `MASTER_MAX_DROP`. Chủ shop tự kiểm khi thấy cảnh báo.
 - **Bảo mật webhook**: DỰA VÀO **secret trong URL** (43 ký tự ngẫu nhiên) làm lớp chính.
   ⚠️ BÀI HỌC THỰC TẾ (2026-07-14): chữ ký `X-Hub-Signature` KiotViet gửi theo scheme
   KHÔNG khớp cách server tự kiểm → nếu trả **401**, KiotViet **TỰ TẮT webhook** (isActive

@@ -60,25 +60,20 @@ def _handle_stock(event: dict):
     # 3b) BẢO VỆ KHO CHUẨN KV1: nếu đang định ghi vào KV1 (tức nguồn là KV2),
     #     CHỈ cho GIẢM (do bán ở KV2). CHẶN nếu định TĂNG (nhập nhầm/trả hàng/lỗi dữ liệu)
     #     -> KV1 không bao giờ bị thổi phồng oan. Cảnh báo NGAY để xử lý tay.
+    # GIÁM SÁT (KHÔNG chặn) chiều KV2 -> KV1: kho dùng CHUNG nên KV2 bán/trả/nhập đều
+    # PHẢI truyền sang KV1 (kể cả TĂNG do trả hàng). Ta KHÔNG chặn để trả hàng chạy đúng,
+    # chỉ CẢNH BÁO khi tăng/giảm LỚN bất thường để chủ shop kiểm (đề phòng nhập sai).
     if config.PROTECT_MASTER and target.retailer == config.KV1.retailer:
         try:
             cur = target_client.get_onhand(code)
         except Exception:  # noqa
             cur = None
-        # CHỈ chặn khi TĂNG LỚN (>= GUARD_MIN_BLOCK) -> nghi nhập sai/lỗi. Tăng nhỏ
-        # (số lẻ do lệch đơn vị, trả hàng lẻ) -> cho qua bình thường, không báo (chống spam).
         if cur is not None and (onhand - cur) >= config.GUARD_MIN_BLOCK:
-            msg = (f"⛔ CHẶN đồng bộ ngược: KV2 muốn TĂNG MẠNH tồn KV1 '{code}': "
-                   f"{cur} → {onhand} (+{onhand - cur:g}). Nghi nhập sai — KV1 là kho CHUẨN. "
-                   f"Nếu là hàng trả/nhập thật thì chỉnh TAY ở KV1.")
-            print(msg); notify.send(msg)
-            store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
-                           cur, onhand, cost, "BLOCKED_INCREASE",
-                           detail="bao ve kho chuan", notif_id=notif_id, reason="guard")
-            return
-        if cur is not None and (cur - onhand) > config.MASTER_MAX_DROP:
-            notify.send(f"⚠ Đồng bộ ngược GIẢM MẠNH tồn KV1 '{code}': {cur} → {onhand} "
-                        f"(giảm {cur - onhand:g}). Đã đồng bộ — kiểm tra nếu bất thường.")
+            notify.send(f"🔎 KV2 làm TĂNG tồn KV1 '{code}': {cur} → {onhand} "
+                        f"(+{onhand - cur:g}). Đã đồng bộ — kiểm nếu KHÔNG phải hàng trả.")
+        elif cur is not None and (cur - onhand) >= config.MASTER_MAX_DROP:
+            notify.send(f"⚠ KV2 làm GIẢM MẠNH tồn KV1 '{code}': {cur} → {onhand} "
+                        f"(giảm {cur - onhand:g}). Đã đồng bộ — kiểm nếu bất thường.")
 
     # Đánh dấu TRƯỚC khi ghi: lát nữa target sẽ bắn webhook onhand này -> ta lờ đi
     store.mark_expected_echo(target.retailer, code, onhand)
