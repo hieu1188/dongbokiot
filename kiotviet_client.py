@@ -74,6 +74,47 @@ class KiotVietClient:
         self._token = None
         self._token_exp = 0.0
         self._lock = threading.Lock()
+        # Cache mã->ID để tra sản phẩm có ký tự đặc biệt (*, +, #...) mà endpoint
+        # /products/code/{code} bị 400. Tra theo /products/{id} thì không lỗi.
+        self._code_id = {}
+        self._code_id_ts = 0.0
+
+    def _ensure_code_index(self, force=False):
+        """Dựng/làm mới bảng {code: id} bằng cách quét /products (mã trả về bình thường)."""
+        if not force and self._code_id and (time.time() - self._code_id_ts) < 600:
+            return
+        idx, cur = {}, 0
+        while True:
+            r = _req_with_retry("GET", f"{BASE_URL}/products?pageSize=100&currentItem={cur}",
+                                headers=self._headers(), timeout=30)
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if not data:
+                break
+            for p in data:
+                if p.get("code") and p.get("id") is not None:
+                    idx[p["code"]] = p["id"]
+            if len(data) < 100:
+                break
+            cur += len(data)
+            time.sleep(0.1)
+        self._code_id, self._code_id_ts = idx, time.time()
+
+    def _id_for_code(self, code):
+        """ID của mã hàng (từ cache; miss thì làm mới 1 lần). None nếu không có."""
+        self._ensure_code_index()
+        if code in self._code_id:
+            return self._code_id[code]
+        self._ensure_code_index(force=True)
+        return self._code_id.get(code)
+
+    def _get_product_by_id(self, pid):
+        r = _req_with_retry("GET", f"{BASE_URL}/products/{pid}",
+                            headers=self._headers(), timeout=15)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
 
     # ---------------- TOKEN ----------------
     def _get_token(self) -> str:
@@ -105,11 +146,16 @@ class KiotVietClient:
         """Lấy thông tin 1 sản phẩm theo mã hàng (SKU)."""
         url = f"{BASE_URL}/products/code/{requests.utils.quote(code)}"
         r = _req_with_retry("GET", url, headers=self._headers(), timeout=15)
+        if r.status_code == 200:
+            return r.json()
         if r.status_code == 404:
             return None
-        # 420 KvValidate*Exception: SP đặc biệt/biến thể lỗi phía KiotViet, không
-        # đọc/ghi được -> coi như bỏ qua (tồn thật nằm ở biến thể con, mã riêng).
-        if r.status_code == 420:
+        # 400/420...: mã có ký tự đặc biệt (*, +, #) khiến endpoint tra-theo-mã lỗi.
+        # -> Fallback: tra theo ID (endpoint /products/{id} không dính ký tự đặc biệt).
+        if r.status_code in (400, 420):
+            pid = self._id_for_code(code)
+            if pid is not None:
+                return self._get_product_by_id(pid)
             return None
         r.raise_for_status()
         return r.json()
