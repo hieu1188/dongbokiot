@@ -211,10 +211,12 @@ def recent_error_codes(hours=48):
             "SELECT code, MAX(ts) FROM sync_log "
             "WHERE ts>=? AND result='ERROR' GROUP BY code", (since,)).fetchall()
         out = []
+        # SKIP_VARIANT = SP cha có biến thể, cố ý bỏ qua (không phải lỗi cần retry).
+        resolved = "('WRITTEN','NOOP','CREATED','DRY_RUN','SKIP_VARIANT')"
         for code, err_ts in rows:
             ok = c.execute(
-                "SELECT 1 FROM sync_log WHERE code=? AND ts>? "
-                "AND result IN ('WRITTEN','NOOP','CREATED','DRY_RUN') LIMIT 1",
+                f"SELECT 1 FROM sync_log WHERE code=? AND ts>? "
+                f"AND result IN {resolved} LIMIT 1",
                 (code, err_ts)).fetchone()
             if not ok:
                 out.append(code)

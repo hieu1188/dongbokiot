@@ -73,6 +73,28 @@ def run_reconcile_check():
     notify.send(head + f"\nĐã TỰ GHI: {w}, bỏ qua(lệch lớn) {s}, lỗi {e}.")
 
 
+# --------------------------- TÓM TẮT CUỐI NGÀY ---------------------------
+def daily_summary():
+    """Gửi Telegram tóm tắt hoạt động đồng bộ 24h qua (để chủ shop nắm nhanh)."""
+    s = store.summary(24)
+    c = s["counts"]
+    hung = store.recent_error_codes(48)
+    total = s["total"]
+    lines = ["📊 TÓM TẮT 24H — Đồng bộ tồn KiotViet",
+             f"• Đồng bộ ghi (WRITTEN): {c.get('WRITTEN', 0)}",
+             f"• Không đổi (NOOP): {c.get('NOOP', 0)}",
+             f"• Tạo SP mới: {c.get('CREATED', 0)}",
+             f"• ⛔ Chặn tăng ngược KV1: {c.get('BLOCKED_INCREASE', 0)}",
+             f"• ❌ Lỗi: {c.get('ERROR', 0)}  |  mã lỗi còn treo: {len(hung)}"]
+    if c.get("DRY_RUN"):
+        lines.append(f"• ⚠ DRY_RUN (chưa ghi thật): {c.get('DRY_RUN')}")
+    if total == 0:
+        lines.append("• (không có hoạt động — hệ thống vẫn chạy bình thường)")
+    if hung:
+        lines.append(f"⚠ Chạy 'python reconcile.py --retry-errors' để bù {len(hung)} mã lỗi.")
+    notify.send("\n".join(lines))
+
+
 # --------------------------- VÒNG LẶP LỊCH ---------------------------
 def _due_snapshot(now) -> bool:
     if config.SNAPSHOT_EVERY_HOURS <= 0:
@@ -91,6 +113,15 @@ def _due_reconcile(now) -> bool:
     return store.get_meta("last_reconcile_date") != vn.strftime("%Y-%m-%d")
 
 
+def _due_summary(now) -> bool:
+    if not config.DAILY_SUMMARY_AT:
+        return False
+    vn = _epoch_to_vn(now)
+    if vn.strftime("%H:%M") < config.DAILY_SUMMARY_AT:
+        return False
+    return store.get_meta("last_summary_date") != vn.strftime("%Y-%m-%d")
+
+
 def tick():
     """Một nhịp kiểm tra lịch. Tách riêng để test được."""
     now = time.time()
@@ -106,13 +137,20 @@ def tick():
         except Exception as e:  # noqa
             print(f"[RECONCILE] lỗi định kỳ: {e}", flush=True)
         store.set_meta("last_reconcile_date", _epoch_to_vn(time.time()).strftime("%Y-%m-%d"))
+    if _due_summary(now):
+        try:
+            daily_summary()
+        except Exception as e:  # noqa
+            print(f"[SUMMARY] lỗi tóm tắt: {e}", flush=True)
+        store.set_meta("last_summary_date", _epoch_to_vn(time.time()).strftime("%Y-%m-%d"))
 
 
 def loop():
     store.init_db()
     print(f"✔ Scheduler chạy: snapshot mỗi {config.SNAPSHOT_EVERY_HOURS}h, "
           f"reconcile lúc {config.RECONCILE_AT or '(tắt)'} "
-          f"(auto_apply={config.RECONCILE_AUTO_APPLY}).", flush=True)
+          f"(auto_apply={config.RECONCILE_AUTO_APPLY}), "
+          f"tóm tắt lúc {config.DAILY_SUMMARY_AT or '(tắt)'}.", flush=True)
     while True:
         try:
             tick()

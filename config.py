@@ -84,6 +84,8 @@ SNAPSHOT_KEEP = int(_get("SNAPSHOT_KEEP", "60") or 60)
 SNAPSHOT_DIR = _get("SNAPSHOT_DIR", "snapshots")
 # Reconcile định kỳ lúc mấy giờ (giờ VN, dạng "HH:MM"; để trống = tắt).
 RECONCILE_AT = _get("RECONCILE_AT")
+# Gửi TÓM TẮT cuối ngày vào Telegram lúc mấy giờ (giờ VN "HH:MM"; để trống = tắt). Vd 21:00
+DAILY_SUMMARY_AT = _get("DAILY_SUMMARY_AT")
 # false = chỉ CHECK + cảnh báo (an toàn). true = tự ghi các lệch trong ngưỡng max-change.
 RECONCILE_AUTO_APPLY = _get("RECONCILE_AUTO_APPLY", "false").lower() == "true"
 # Lệch 1 mã lớn hơn số này -> KHÔNG tự ghi, chỉ cảnh báo để người xem.
