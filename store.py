@@ -156,11 +156,11 @@ def log_sync(kind, source, target, code, old_onhand, new_onhand,
 
 
 def query_logs(limit=200, code=None, result=None, kind=None,
-               from_ts=None, to_ts=None, order="DESC"):
+               source=None, from_ts=None, to_ts=None, order="DESC"):
     """
     Truy vấn sổ cái linh hoạt (mới->cũ mặc định). Mọi bộ lọc là tùy chọn:
       code (chính xác), result (WRITTEN/ERROR/...), kind (stock/product/reconcile),
-      from_ts/to_ts (khoảng thời gian epoch).
+      source (tài khoản phát sinh), from_ts/to_ts (khoảng thời gian epoch).
     """
     where, params = [], []
     if code:
@@ -169,6 +169,8 @@ def query_logs(limit=200, code=None, result=None, kind=None,
         where.append("result=?"); params.append(result)
     if kind:
         where.append("kind=?"); params.append(kind)
+    if source:
+        where.append("source=?"); params.append(source)
     if from_ts is not None:
         where.append("ts>=?"); params.append(float(from_ts))
     if to_ts is not None:

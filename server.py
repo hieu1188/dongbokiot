@@ -132,10 +132,10 @@ def _csv_cell(x):
 
 @app.get("/audit/{secret}")
 def audit(secret: str, code: str = "", result: str = "", kind: str = "",
-          hours: int = 0, limit: int = 300, fmt: str = "html"):
+          source: str = "", hours: int = 0, limit: int = 300, fmt: str = "html"):
     """Sổ cái đồng bộ — tra cứu + kiểm soát. Bảo vệ bằng WEBHOOK_SECRET trong URL.
 
-    Lọc: ?code= &result=ERROR &kind=stock &hours=24 &limit=  &fmt=csv
+    Lọc: ?code= &result=ERROR &kind=stock &source=Kiot_Chinh &hours=24 &limit=  &fmt=csv
     """
     if secret != config.WEBHOOK_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
@@ -143,7 +143,7 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
     from_ts = (time.time() - hours * 3600) if hours else None
     logs = store.query_logs(limit=min(int(limit), 2000), code=code.strip() or None,
                             result=result.strip() or None, kind=kind.strip() or None,
-                            from_ts=from_ts)
+                            source=source.strip() or None, from_ts=from_ts)
 
     # ---- Xuất CSV ----
     if fmt == "csv":
@@ -202,8 +202,10 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
              f'<a href="{base}">Tất cả</a> · '
              f'<a href="{base}?result=ERROR">Chỉ lỗi</a> · '
              f'<a href="{base}?hours=24">24h</a> · '
+             f'<a href="{base}?source={config.KV1.name}">Từ {config.KV1.name}</a> · '
+             f'<a href="{base}?source={config.KV2.name}">Từ {config.KV2.name}</a> · '
              f'<a href="{base}?kind=reconcile">Reconcile</a> · '
-             f'<a href="{base}?{_qs(code,result,kind,hours)}&fmt=csv">⬇ Xuất CSV</a></div>')
+             f'<a href="{base}?{_qs(code,result,kind,source,hours)}&fmt=csv">⬇ Xuất CSV</a></div>')
 
     rows = []
     for r in logs:
@@ -248,6 +250,10 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
         <option value="">— loại —</option>
         {''.join(f'<option value="{k}"{" selected" if kind==k else ""}>{k}</option>' for k in ["stock","product","reconcile"])}
       </select>
+      <select name="source">
+        <option value="">— nguồn —</option>
+        {''.join(f'<option value="{s}"{" selected" if source==s else ""}>{s}</option>' for s in [config.KV1.name, config.KV2.name, "RECON", "RETRY"])}
+      </select>
       <input name="hours" type="number" placeholder="giờ" value="{hours or ''}" style="width:80px">
       <button type="submit">Lọc</button>
     </form>
@@ -258,12 +264,13 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
     </body></html>""")
 
 
-def _qs(code, result, kind, hours):
+def _qs(code, result, kind, source, hours):
     """Dựng lại query-string hiện tại (để nút Xuất CSV giữ nguyên bộ lọc)."""
     parts = []
     if code: parts.append(f"code={code}")
     if result: parts.append(f"result={result}")
     if kind: parts.append(f"kind={kind}")
+    if source: parts.append(f"source={source}")
     if hours: parts.append(f"hours={hours}")
     return "&".join(parts)
 
