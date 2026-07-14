@@ -132,13 +132,23 @@ def _csv_cell(x):
 
 @app.get("/audit/{secret}")
 def audit(secret: str, code: str = "", result: str = "", kind: str = "",
-          source: str = "", hours: int = 0, limit: int = 300, fmt: str = "html"):
+          source: str = "", hours: str = "", limit: str = "300", fmt: str = "html"):
     """Sổ cái đồng bộ — tra cứu + kiểm soát. Bảo vệ bằng WEBHOOK_SECRET trong URL.
 
     Lọc: ?code= &result=ERROR &kind=stock &source=Kiot_Chinh &hours=24 &limit=  &fmt=csv
     """
     if secret != config.WEBHOOK_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
+
+    # Form có thể gửi chuỗi RỖNG cho hours/limit -> parse an toàn (rỗng = mặc định),
+    # tránh lỗi 422 khiến "bộ lọc không hoạt động".
+    def _int(s, default):
+        try:
+            return int(str(s).strip())
+        except (ValueError, TypeError):
+            return default
+    hours = _int(hours, 0)
+    limit = _int(limit, 300)
 
     from_ts = (time.time() - hours * 3600) if hours else None
     logs = store.query_logs(limit=min(int(limit), 2000), code=code.strip() or None,
