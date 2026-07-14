@@ -107,6 +107,10 @@ class KiotVietClient:
         r = _req_with_retry("GET", url, headers=self._headers(), timeout=15)
         if r.status_code == 404:
             return None
+        # 420 KvValidate*Exception: SP đặc biệt/biến thể lỗi phía KiotViet, không
+        # đọc/ghi được -> coi như bỏ qua (tồn thật nằm ở biến thể con, mã riêng).
+        if r.status_code == 420:
+            return None
         r.raise_for_status()
         return r.json()
 
