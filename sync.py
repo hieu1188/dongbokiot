@@ -9,11 +9,33 @@ sync.py — Bộ não đồng bộ.
 """
 import queue
 import threading
+import time
 
 import config
 import store
 import notify
 from kiotviet_client import KiotVietClient
+
+# --- Phát hiện LOOP đồng bộ ---
+# Một số SP (cha biến thể / đa đơn vị) khi ghi onHand bị KiotViet tính lại -> revert ->
+# dội webhook giá trị KHÁC -> ta lại ghi -> lặp vô tận (spam + không hội tụ). Chống-loop
+# theo giá trị (expected_echo) không bắt được. Nên đếm tần suất: 1 mã bị ghi quá nhiều
+# lần trong cửa sổ ngắn -> coi là LOOP -> DỪNG sync mã đó + cảnh báo 1 lần.
+_LOOP_WINDOW = 600      # giây (10 phút)
+_LOOP_MAX = 6           # >= số lần ghi trong cửa sổ -> loop
+_write_hist = {}        # code -> [timestamps ghi gần đây]
+_loop_alerted = {}      # code -> lần cảnh báo cuối (để không spam)
+
+
+def _is_looping(code) -> bool:
+    now = time.time()
+    hist = [t for t in _write_hist.get(code, []) if now - t < _LOOP_WINDOW]
+    _write_hist[code] = hist
+    return len(hist) >= _LOOP_MAX
+
+
+def _record_write(code):
+    _write_hist.setdefault(code, []).append(time.time())
 
 # Mỗi tài khoản 1 client (tái dùng token)
 _clients = {
@@ -53,6 +75,19 @@ def _handle_stock(event: dict):
         print(f"[SKIP-echo] {src} {code}={onhand} (do ta tự ghi, bỏ qua)")
         return
 
+    # 2b) Phát hiện LOOP theo tần suất: mã bị ghi lặp quá nhiều -> DỪNG sync + báo 1 lần.
+    if _is_looping(code):
+        now = time.time()
+        if now - _loop_alerted.get(code, 0) > 3600:
+            _loop_alerted[code] = now
+            notify.send(f"🔁 Mã '{code}' bị LẶP đồng bộ (KV1/KV2 nhảy qua lại, thường do "
+                        f"SP cha biến thể / đa đơn vị khác nhau giữa 2 tài khoản). ĐÃ DỪNG "
+                        f"tự sync mã này — cần thống nhất/chỉnh tay ở 2 tài khoản.")
+        store.log_sync("stock", config.ACCOUNTS[src].name,
+                       config.other_account(src).name, code, None, onhand, cost,
+                       "LOOP_STOPPED", detail="tan suat cao", notif_id=notif_id, reason="loop")
+        return
+
     # 3) Đồng bộ sang tài khoản còn lại
     target = config.other_account(src)
     target_client = _clients[target.retailer]
@@ -82,6 +117,8 @@ def _handle_stock(event: dict):
         r = target_client.set_onhand(code, onhand, dry_run=config.DRY_RUN, cost=cost)
         print(f"[{r['result']}] {src} -> {target.name}: {code} "
               f"{r['old']} -> {r['new']} (cost={cost})")
+        if r["result"] == "WRITTEN":
+            _record_write(code)   # đếm để phát hiện loop
         store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
                        r["old"], r["new"], cost, r["result"], notif_id=notif_id,
                        reason="stock")

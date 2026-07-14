@@ -119,7 +119,7 @@ _RESULT_COLOR = {
     "WRITTEN": "#0a7d28", "CREATED": "#0a7d28", "DRY_RUN": "#8a6d00",
     "NOOP": "#666", "NOT_FOUND": "#b26a00", "ERROR": "#c0271c",
     "SKIP_DISABLED": "#666", "BLOCKED_INCREASE": "#c0271c", "SKIP_FLAGGED": "#8a6d00",
-    "SKIP_VARIANT": "#888",
+    "SKIP_VARIANT": "#888", "LOOP_STOPPED": "#b26a00",
 }
 
 
