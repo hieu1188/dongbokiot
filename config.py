@@ -59,6 +59,9 @@ TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID")
 # true: server CHỈ được GIẢM tồn KV1 (do bán ở KV2). Nếu KV2 định TĂNG tồn KV1
 #       (nhập nhầm/sửa sai/trả hàng) -> CHẶN, không ghi, cảnh báo ngay.
 PROTECT_MASTER = _get("PROTECT_MASTER", "true").lower() != "false"
+# CHỈ chặn khi KV2 định TĂNG tồn KV1 từ >= số này (nghi nhập sai/lỗi lớn). Tăng nhỏ
+# hơn (số lẻ, trả hàng lẻ) -> cho đồng bộ bình thường, KHÔNG chặn, KHÔNG báo Telegram.
+GUARD_MIN_BLOCK = float(_get("GUARD_MIN_BLOCK", "50") or 50)
 # Đồng bộ ngược làm KV1 GIẢM hơn số này trong 1 lần -> vẫn ghi (có thể đơn sỉ thật)
 # nhưng CẢNH BÁO ngay để bạn kiểm tra (đề phòng lỗi dữ liệu).
 MASTER_MAX_DROP = float(_get("MASTER_MAX_DROP", "200") or 200)

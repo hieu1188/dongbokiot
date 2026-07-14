@@ -65,9 +65,11 @@ def _handle_stock(event: dict):
             cur = target_client.get_onhand(code)
         except Exception:  # noqa
             cur = None
-        if cur is not None and onhand > cur:
-            msg = (f"⛔ CHẶN đồng bộ ngược: KV2 muốn TĂNG tồn KV1 '{code}': "
-                   f"{cur} → {onhand}. KV1 là kho CHUẨN, không nhận tăng từ KV2. "
+        # CHỈ chặn khi TĂNG LỚN (>= GUARD_MIN_BLOCK) -> nghi nhập sai/lỗi. Tăng nhỏ
+        # (số lẻ do lệch đơn vị, trả hàng lẻ) -> cho qua bình thường, không báo (chống spam).
+        if cur is not None and (onhand - cur) >= config.GUARD_MIN_BLOCK:
+            msg = (f"⛔ CHẶN đồng bộ ngược: KV2 muốn TĂNG MẠNH tồn KV1 '{code}': "
+                   f"{cur} → {onhand} (+{onhand - cur:g}). Nghi nhập sai — KV1 là kho CHUẨN. "
                    f"Nếu là hàng trả/nhập thật thì chỉnh TAY ở KV1.")
             print(msg); notify.send(msg)
             store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
@@ -76,7 +78,7 @@ def _handle_stock(event: dict):
             return
         if cur is not None and (cur - onhand) > config.MASTER_MAX_DROP:
             notify.send(f"⚠ Đồng bộ ngược GIẢM MẠNH tồn KV1 '{code}': {cur} → {onhand} "
-                        f"(giảm {cur - onhand}). Đã đồng bộ — kiểm tra nếu bất thường.")
+                        f"(giảm {cur - onhand:g}). Đã đồng bộ — kiểm tra nếu bất thường.")
 
     # Đánh dấu TRƯỚC khi ghi: lát nữa target sẽ bắn webhook onhand này -> ta lờ đi
     store.mark_expected_echo(target.retailer, code, onhand)
