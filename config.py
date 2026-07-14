@@ -63,6 +63,11 @@ PROTECT_MASTER = _get("PROTECT_MASTER", "true").lower() != "false"
 # nhưng CẢNH BÁO ngay để bạn kiểm tra (đề phòng lỗi dữ liệu).
 MASTER_MAX_DROP = float(_get("MASTER_MAX_DROP", "200") or 200)
 
+# --- Tự kiểm webhook: KiotViet hay tự TẮT webhook khi giao dịch tới server lỗi ---
+# Cứ mỗi WEBHOOK_CHECK_MINUTES phút, kiểm isActive; nếu bị tắt -> tự bật lại + báo.
+# 0 = tắt việc tự kiểm.
+WEBHOOK_CHECK_MINUTES = int(_get("WEBHOOK_CHECK_MINUTES", "10") or 10)
+
 # --- Heartbeat / phát hiện server chết ---
 # Server ghi "nhịp tim" mỗi HEARTBEAT_SECONDS. Khi khởi động lại, nếu khoảng cách
 # so với nhịp cuối > DOWNTIME_ALERT_SECONDS -> coi là VỪA CHẾT MỘT ĐOẠN -> cảnh báo

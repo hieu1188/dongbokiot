@@ -46,6 +46,17 @@ def _heartbeat_loop():
         time.sleep(config.HEARTBEAT_SECONDS)
 
 
+def _webhook_check_loop():
+    """Định kỳ kiểm webhook còn active không; bị tắt -> tự bật lại + báo."""
+    import webhook_guard
+    while True:
+        try:
+            webhook_guard.ensure_active()
+        except Exception as e:  # noqa
+            print(f"[WEBHOOK-GUARD] lỗi: {e}", flush=True)
+        time.sleep(config.WEBHOOK_CHECK_MINUTES * 60)
+
+
 def _check_downtime_on_boot():
     """
     So nhịp tim cuối với hiện tại. Nếu cách nhau > ngưỡng -> server VỪA chết một đoạn:
@@ -89,6 +100,8 @@ def _startup():
     _check_downtime_on_boot()          # cảnh báo nếu vừa chết một đoạn (trước khi ghi nhịp mới)
     sync.start_worker()
     threading.Thread(target=_heartbeat_loop, daemon=True, name="heartbeat").start()
+    if config.WEBHOOK_CHECK_MINUTES > 0:
+        threading.Thread(target=_webhook_check_loop, daemon=True, name="webhook-guard").start()
     if config.ENABLE_SCHEDULER:
         import scheduler
         threading.Thread(target=scheduler.loop, daemon=True, name="scheduler").start()
@@ -366,17 +379,14 @@ async def webhook(secret: str, request: Request):
 
     acc = config.ACCOUNTS[src]
 
-    # --- Chốt 2: xác thực chữ ký HMAC-SHA256 ---
+    # --- Chốt 2: xác thực chữ ký HMAC-SHA256 (KHÔNG chặn) ---
+    # BÀI HỌC THỰC TẾ: KiotViet ký X-Hub-Signature theo scheme KHÔNG khớp cách ta kiểm
+    # -> nếu trả 401, KiotViet TỰ TẮT webhook (isActive=False) và sync NGỪNG ÂM THẦM.
+    # Nên ta CHỈ dựa vào URL secret (43 ký tự ngẫu nhiên, không lộ) làm lớp bảo vệ chính,
+    # còn chữ ký chỉ kiểm để LOG, TUYỆT ĐỐI KHÔNG trả 4xx.
     sig = request.headers.get("X-Hub-Signature") or request.headers.get("x-hub-signature")
-    if acc.sign_secret:
-        if not _verify_signature(raw, acc.sign_secret, sig):
-            # Chữ ký sai = giả mạo. Tài liệu KiotViet yêu cầu trả 401.
-            # (Request thật sẽ luôn khớp vì secret đã đồng bộ khi đăng ký.)
-            print(f"[SECURITY] chữ ký KHÔNG khớp cho {acc.name} -> 401")
-            raise HTTPException(status_code=401, detail="invalid signature")
-    else:
-        # Chưa cấu hình secret ký -> KHÔNG chặn (tránh vô tình tắt webhook), chỉ cảnh báo.
-        print(f"[WARN] {acc.name} chưa đặt WEBHOOK_SIGN_SECRET -> bỏ qua kiểm tra chữ ký")
+    if acc.sign_secret and sig and not _verify_signature(raw, acc.sign_secret, sig):
+        print(f"[WARN] chữ ký không khớp cho {acc.name} -> vẫn xử lý (URL secret đã bảo vệ)")
 
     # Parse + đẩy vào hàng đợi. Lỗi parse cũng trả 200 để không bị tắt webhook.
     try:

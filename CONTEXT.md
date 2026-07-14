@@ -44,8 +44,14 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
   **CHỈ được GIẢM KV1**, CHẶN mọi lệnh từ KV2 định TĂNG KV1 (nhập nhầm/trả hàng/lỗi dữ
   liệu) + cảnh báo Telegram ngay (result `BLOCKED_INCREASE`). Giảm > `MASTER_MAX_DROP`
   thì vẫn ghi nhưng cảnh báo. → KV1 không bao giờ bị thổi phồng oan (chống oversell).
-- **Bảo mật webhook**: secret trong URL + chữ ký `X-Hub-Signature` (HMAC-SHA256).
-  ⚠️ Trả 4xx là KiotViet TỰ TẮT webhook → chỉ trả 401 khi chữ ký sai thật.
+- **Bảo mật webhook**: DỰA VÀO **secret trong URL** (43 ký tự ngẫu nhiên) làm lớp chính.
+  ⚠️ BÀI HỌC THỰC TẾ (2026-07-14): chữ ký `X-Hub-Signature` KiotViet gửi theo scheme
+  KHÔNG khớp cách server tự kiểm → nếu trả **401**, KiotViet **TỰ TẮT webhook** (isActive
+  =False) và sync NGỪNG ÂM THẦM (chỉ webhook có phát sinh mới bị tắt). → Server **KHÔNG
+  BAO GIỜ trả 4xx** cho webhook nữa (chữ ký chỉ kiểm để log). Wrong URL secret vẫn 403
+  (nhưng KiotViet không bao giờ gọi sai URL).
+- **`webhook_guard.py`**: định kỳ (WEBHOOK_CHECK_MINUTES) + lúc khởi động, kiểm isActive;
+  bị tắt → tự đăng ký lại (active) + cảnh báo Telegram. Lưới an toàn cho mọi kiểu bị tắt.
 - **Giá vốn**: lấy `Cost` ngay trong webhook `stock.update` → set sang KV2, tránh giá vốn ảo.
 - **Tự tạo sản phẩm mới sang KV2** qua webhook `product.update` (AUTO_CREATE_PRODUCT).
   ⚠️ Hạn chế: KHÔNG copy nhóm hàng (mỗi tài khoản có categoryId riêng) → gán tay ở KV2.
