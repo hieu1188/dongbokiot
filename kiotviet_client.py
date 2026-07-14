@@ -145,10 +145,6 @@ class KiotVietClient:
                 code = p.get("code")
                 if not code:
                     continue
-                # Bỏ qua SP CHA có biến thể: tồn nằm ở biến thể con (mã riêng), không
-                # ghi được tồn thẳng vào cha (KiotViet trả 420 KvValidateBranchException).
-                if p.get("hasVariants"):
-                    continue
                 for inv in (p.get("inventories") or []):
                     if int(inv.get("branchId", -1)) == self.acc.branch_id:
                         oh = inv.get("onHand")
@@ -231,10 +227,6 @@ class KiotVietClient:
         if not product:
             print(f"[{self.acc.name}] ⚠ Không tìm thấy mã '{code}' -> bỏ qua.")
             return {"result": "NOT_FOUND", "old": None, "new": target_onhand}
-        # SP cha có biến thể: tồn nằm ở biến thể con (mã riêng), KiotViet không cho ghi
-        # tồn thẳng vào cha (420) -> BỎ QUA, không phải lỗi.
-        if product.get("hasVariants"):
-            return {"result": "SKIP_VARIANT", "old": None, "new": target_onhand}
 
         current = None
         for inv in product.get("inventories", []):
@@ -253,7 +245,16 @@ class KiotVietClient:
                   f"{current} -> {target_onhand} (delta {delta:+g}, cost={cost})")
             return {"result": "DRY_RUN", "old": current, "new": target_onhand}
 
-        self._apply_stock_adjustment(code, current, target_onhand, delta, cost, product=product)
+        # THỬ ghi. hasVariants KHÔNG đáng tin (có SP biến thể vẫn ghi được). Chỉ khi
+        # KiotViet trả 420 (SP đặc biệt không ghi tồn thẳng được) mới BỎ QUA, không báo lỗi.
+        try:
+            self._apply_stock_adjustment(code, current, target_onhand, delta, cost,
+                                         product=product)
+        except requests.HTTPError as e:
+            resp = getattr(e, "response", None)
+            if resp is not None and resp.status_code == 420:
+                return {"result": "SKIP_VARIANT", "old": current, "new": target_onhand}
+            raise
         return {"result": "WRITTEN", "old": current, "new": target_onhand}
 
     def _apply_stock_adjustment(self, code, current, target, delta, cost=None,
