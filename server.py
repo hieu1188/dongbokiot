@@ -31,6 +31,7 @@ import config
 import store
 import sync
 import notify
+from kiotviet_client import _epoch_to_vn  # hiển thị giờ VN (Railway chạy UTC)
 
 app = FastAPI(title="KiotViet Stock Sync")
 
@@ -56,7 +57,7 @@ def _check_downtime_on_boot():
     gap = time.time() - last
     if gap > config.DOWNTIME_ALERT_SECONDS:
         mins = int(gap // 60)
-        frm = datetime.fromtimestamp(last).strftime("%H:%M %d/%m")
+        frm = _epoch_to_vn(last).strftime("%H:%M %d/%m")
         notify.send(
             f"🔴 Server đồng bộ VỪA SỐNG LẠI sau khi chết ~{mins} phút (từ {frm}).\n"
             f"Webhook trong lúc chết có thể đã mất -> KV1/KV2 có thể lệch.\n"
@@ -137,7 +138,7 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
                   "old_onhand", "new_onhand", "cost", "result", "detail", "notif_id"]
         lines = [",".join(header)]
         for r in logs:
-            ts = datetime.fromtimestamp(r["ts"]).strftime("%Y-%m-%d %H:%M:%S")
+            ts = _epoch_to_vn(r["ts"]).strftime("%Y-%m-%d %H:%M:%S")
             lines.append(",".join(_csv_cell(v) for v in [
                 ts, r["kind"], r.get("reason"), r["source"], r["target"], r["code"],
                 r["old_onhand"], r["new_onhand"], r["cost"], r["result"],
@@ -154,10 +155,10 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
     last_alive = store.get_last_alive()
     alive = last_alive and (time.time() - last_alive) < 3 * config.HEARTBEAT_SECONDS
     hung = store.recent_error_codes(48)
-    last_ev = (datetime.fromtimestamp(s["last_ts"]).strftime("%H:%M %d/%m")
+    last_ev = (_epoch_to_vn(s["last_ts"]).strftime("%H:%M %d/%m")
                if s["last_ts"] else "—")
     last_snap = store.get_meta("last_snapshot")
-    last_snap = (datetime.fromtimestamp(float(last_snap)).strftime("%H:%M %d/%m")
+    last_snap = (_epoch_to_vn(float(last_snap)).strftime("%H:%M %d/%m")
                  if last_snap else "—")
 
     def chip(label, val, color):
@@ -193,7 +194,7 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
 
     rows = []
     for r in logs:
-        ts = datetime.fromtimestamp(r["ts"]).strftime("%Y-%m-%d %H:%M:%S")
+        ts = _epoch_to_vn(r["ts"]).strftime("%Y-%m-%d %H:%M:%S")
         color = _RESULT_COLOR.get(r["result"], "#333")
         rowbg = ' style="background:#fdeceb"' if r["result"] == "ERROR" else ""
         old, new = r["old_onhand"], r["new_onhand"]
@@ -238,7 +239,7 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
       <button type="submit">Lọc</button>
     </form>
     <table><thead><tr>
-      <th>Thời gian</th><th>Loại</th><th>Lý do</th><th>Nguồn → Đích</th><th>Mã hàng</th>
+      <th>Thời gian (VN)</th><th>Loại</th><th>Lý do</th><th>Nguồn → Đích</th><th>Mã hàng</th>
       <th>Tồn (cũ → mới)</th><th>Giá vốn</th><th>Kết quả</th><th>Chi tiết</th>
     </tr></thead><tbody>{body}</tbody></table>
     </body></html>""")
