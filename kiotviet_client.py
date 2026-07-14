@@ -141,6 +141,10 @@ class KiotVietClient:
                 code = p.get("code")
                 if not code:
                     continue
+                # Bỏ qua SP CHA có biến thể: tồn nằm ở biến thể con (mã riêng), không
+                # ghi được tồn thẳng vào cha (KiotViet trả 420 KvValidateBranchException).
+                if p.get("hasVariants"):
+                    continue
                 for inv in (p.get("inventories") or []):
                     if int(inv.get("branchId", -1)) == self.acc.branch_id:
                         oh = inv.get("onHand")
@@ -217,11 +221,23 @@ class KiotVietClient:
         Đặt tồn của 'code' tại kho dùng chung về đúng 'target_onhand'.
         'cost' = giá vốn lấy từ webhook tài khoản nguồn, để KV đích không bị giá vốn ảo.
         Trả về dict: {"result", "old", "new"} để bên gọi ghi sổ cái.
-          result ∈ NOT_FOUND / NOOP / DRY_RUN / WRITTEN
+          result ∈ NOT_FOUND / SKIP_VARIANT / NOOP / DRY_RUN / WRITTEN
         """
-        current = self.get_onhand(code)
-        if current is None:
+        product = self.get_product_by_code(code)
+        if not product:
             print(f"[{self.acc.name}] ⚠ Không tìm thấy mã '{code}' -> bỏ qua.")
+            return {"result": "NOT_FOUND", "old": None, "new": target_onhand}
+        # SP cha có biến thể: tồn nằm ở biến thể con (mã riêng), KiotViet không cho ghi
+        # tồn thẳng vào cha (420) -> BỎ QUA, không phải lỗi.
+        if product.get("hasVariants"):
+            return {"result": "SKIP_VARIANT", "old": None, "new": target_onhand}
+
+        current = None
+        for inv in product.get("inventories", []):
+            if int(inv.get("branchId", -1)) == self.acc.branch_id:
+                current = int(inv.get("onHand", 0)); break
+        if current is None:
+            print(f"[{self.acc.name}] ⚠ '{code}' không có tồn ở kho chung -> bỏ qua.")
             return {"result": "NOT_FOUND", "old": None, "new": target_onhand}
         if current == target_onhand:
             # Đã bằng nhau -> KHÔNG ghi. Đây cũng là chốt chặn chống loop.
@@ -233,10 +249,11 @@ class KiotVietClient:
                   f"{current} -> {target_onhand} (delta {delta:+g}, cost={cost})")
             return {"result": "DRY_RUN", "old": current, "new": target_onhand}
 
-        self._apply_stock_adjustment(code, current, target_onhand, delta, cost)
+        self._apply_stock_adjustment(code, current, target_onhand, delta, cost, product=product)
         return {"result": "WRITTEN", "old": current, "new": target_onhand}
 
-    def _apply_stock_adjustment(self, code, current, target, delta, cost=None) -> bool:
+    def _apply_stock_adjustment(self, code, current, target, delta, cost=None,
+                                product=None) -> bool:
         """
         Đặt tồn kho về 'target' cho kho dùng chung.
 
@@ -249,7 +266,8 @@ class KiotVietClient:
         sửa đúng chi nhánh kho dùng chung, giữ nguyên tồn các chi nhánh khác và
         các trường bắt buộc -> tránh mất dữ liệu.
         """
-        product = self.get_product_by_code(code)
+        if product is None:
+            product = self.get_product_by_code(code)
         if not product:
             raise RuntimeError(f"[{self.acc.name}] không tìm thấy sản phẩm {code} để ghi tồn")
         pid = product["id"]
