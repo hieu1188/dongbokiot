@@ -328,25 +328,17 @@ class KiotVietClient:
             raise RuntimeError(f"[{self.acc.name}] không tìm thấy sản phẩm {code} để ghi tồn")
         pid = product["id"]
 
-        # Dựng lại danh sách tồn: chỉ đổi chi nhánh của ta, giữ các chi nhánh khác.
-        inventories, found = [], False
+        # CHỈ gửi chi nhánh dùng chung. KHÔNG gửi các chi nhánh khác vì nhiều SP còn
+        # dính chi nhánh ĐÃ XOÁ (branchId ma) -> KiotViet trả 420 "Chi nhánh không tồn tại".
+        # Mỗi tài khoản chỉ có 1 chi nhánh thật nên gửi 1 dòng là đủ, không mất dữ liệu.
+        entry = {"branchId": self.acc.branch_id, "onHand": target}
         for inv in product.get("inventories", []):
-            entry = {
-                "branchId": inv.get("branchId"),
-                "onHand": inv.get("onHand", 0),
-                "cost": inv.get("cost"),
-            }
             if int(inv.get("branchId", -1)) == self.acc.branch_id:
-                entry["onHand"] = target
-                if cost is not None:
-                    entry["cost"] = cost
-                found = True
-            inventories.append(entry)
-        if not found:
-            entry = {"branchId": self.acc.branch_id, "onHand": target}
-            if cost is not None:
-                entry["cost"] = cost
-            inventories.append(entry)
+                entry["cost"] = inv.get("cost")
+                break
+        if cost is not None:
+            entry["cost"] = cost
+        inventories = [entry]
 
         # Gửi lại các trường bắt buộc để PUT không xoá mất dữ liệu hàng hóa.
         body = {
