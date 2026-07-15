@@ -274,6 +274,98 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
     </body></html>""")
 
 
+@app.get("/fix/{secret}", response_class=HTMLResponse)
+def fix(secret: str, code: str = "", value: str = "", apply: str = ""):
+    """Công cụ SỬA NHANH mã bị loop: xem đỉnh dao động (tồn gốc) + ghi cả 2 KV.
+
+    ?code=MÃ                     -> xem đề xuất
+    ?code=MÃ&value=238&apply=1   -> ghi CẢ 2 tài khoản = 238
+    """
+    if secret != config.WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    import fixtool
+
+    def esc(x):
+        return (str(x) if x is not None else "").replace("&", "&amp;").replace(
+            "<", "&lt;").replace('"', "&quot;")
+
+    base = f"/fix/{esc(secret)}"
+    code = code.strip()
+    result_html = ""
+
+    if code:
+        a = fixtool.analyze(code)
+        applied = ""
+        # --- Thực thi ghi khi bấm nút (apply=1 + value) ---
+        if apply and value.strip():
+            try:
+                res = fixtool.apply(code, float(value))
+                rows = "".join(f"<tr><td>{k}</td><td><b>{esc(v)}</b></td></tr>"
+                               for k, v in res.items())
+                applied = (f'<div style="background:#e7f6ea;border:1px solid #9ad3a8;'
+                           f'padding:10px 12px;border-radius:8px;margin:10px 0">'
+                           f'✅ <b>Đã ghi cả 2 tài khoản = {esc(_g(value))}</b>'
+                           f'<table style="margin-top:6px">{rows}</table></div>')
+                a = fixtool.analyze(code)  # đọc lại sau khi ghi
+            except Exception as e:  # noqa
+                applied = (f'<div style="background:#fde7e6;border:1px solid #f3b0ab;'
+                           f'padding:10px 12px;border-radius:8px;margin:10px 0;'
+                           f'color:#8a1a12">⛔ Lỗi ghi: {esc(e)}</div>')
+
+        sug = a["suggested"]
+        match = (a["kv1"] is not None and a["kv1"] == a["kv2"])
+        badge = ('<span style="color:#0a7d28">✔ KV1=KV2</span>' if match
+                 else '<span style="color:#c0271c">✗ KV1≠KV2</span>')
+        sug_field = _g(sug) if sug is not None else ""
+        # Các mức dao động -> nút bấm chọn nhanh (điền vào ô value).
+        chips = ""
+        for v, n in a.get("osc_values", []):
+            chips += (f'<button type="button" onclick="document.getElementById(\'fixval\').value={_g(v)}" '
+                      f'style="margin:2px 6px 2px 0;background:#eef3fb;border:1px solid #b9cdec;'
+                      f'border-radius:6px">{_g(v)} <span style="color:#888">×{n}</span></button>')
+        chips_row = (f'<tr><th>Mức dao động</th><td>{chips or "—"}<div style="color:#888;'
+                     f'font-size:12px;margin-top:3px">bấm 1 mức để điền vào ô ghi bên dưới</div></td></tr>')
+        result_html = f"""
+        {applied}
+        <table style="max-width:560px">
+          <tr><th>Mã hàng</th><td><b>{esc(a['code'])}</b></td></tr>
+          <tr><th>KV1 hiện tại</th><td>{esc(a['kv1'])}</td></tr>
+          <tr><th>KV2 hiện tại</th><td>{esc(a['kv2'])} &nbsp; {badge}</td></tr>
+          {chips_row}
+          <tr><th>Đỉnh dao động (tồn gốc)</th><td>{esc(a['peak'])} <span style="color:#888">({a['samples']} mẫu log)</span></td></tr>
+          <tr><th>Gợi ý điền sẵn</th><td><b style="font-size:16px">{esc(sug)}</b></td></tr>
+          <tr><th></th><td style="color:#a15c00;font-size:13px">{esc(a['note'])}</td></tr>
+        </table>
+        <form method="get" action="{base}" style="margin-top:14px">
+          <input type="hidden" name="code" value="{esc(code)}">
+          <input type="hidden" name="apply" value="1">
+          Ghi cả 2 KV về: <input id="fixval" name="value" type="number" step="any" value="{esc(sug_field)}" style="width:110px">
+          <button type="submit" onclick="return confirm('Ghi CẢ HAI tài khoản về số này?')">✍ GHI 2 KV</button>
+        </form>"""
+
+    return HTMLResponse(f"""<!doctype html><html lang="vi"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sửa nhanh mã bị loop</title>
+    <style>
+      body{{font-family:system-ui,Segoe UI,Arial;margin:24px;color:#222}}
+      h2{{margin:0 0 4px}} a{{color:#1257c2;text-decoration:none}}
+      input,button{{padding:6px 9px;font-size:14px}} button{{cursor:pointer}}
+      table{{border-collapse:collapse}} th,td{{border:1px solid #e3e3e3;padding:7px 10px;text-align:left}}
+      th{{background:#f6f6f6}}
+    </style></head><body>
+    <h2>🔧 Sửa nhanh mã bị loop</h2>
+    <p style="color:#555;max-width:640px">Nhập mã hàng đang lệch/kẹt do loop. Hệ thống đọc
+    tồn hiện tại 2 tài khoản + <b>đỉnh dao động</b> (tồn gốc trước khi bán, thường là số đúng),
+    rồi bạn bấm để ghi cả 2 KV. ⚠ Nếu có bán thật xen giữa lúc loop thì số đúng nhỏ hơn đỉnh — kiểm trước khi ghi.</p>
+    <form method="get" action="{base}">
+      <input name="code" placeholder="Mã hàng…" value="{esc(code)}" style="width:280px" autofocus>
+      <button type="submit">Xem</button>
+    </form>
+    {result_html}
+    <p style="margin-top:18px"><a href="/audit/{esc(secret)}">← Về Sổ cái</a></p>
+    </body></html>""")
+
+
 def _qs(code, result, kind, source, hours):
     """Dựng lại query-string hiện tại (để nút Xuất CSV giữ nguyên bộ lọc)."""
     parts = []

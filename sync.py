@@ -81,9 +81,21 @@ def _handle_stock(event: dict):
         now = time.time()
         if now - _loop_alerted.get(code, 0) > 3600:
             _loop_alerted[code] = now
+            # Kèm ĐỈNH dao động (giá trị onHand CAO NHẤT gần đây = tồn gốc trước bán):
+            # thường CHÍNH LÀ số đúng cần khôi phục -> chủ shop khỏi phải tra sổ cái.
+            vals = [v for _, v in _write_hist.get(code, [])] + [onhand]
+            lo, hi = (min(vals), max(vals)) if vals else (None, None)
+            link = ""
+            if config.PUBLIC_URL and config.WEBHOOK_SECRET:
+                import urllib.parse
+                q = urllib.parse.quote(code)
+                link = (f"\n🔧 Sửa nhanh (xem + ghi 2 KV): "
+                        f"{config.PUBLIC_URL}/fix/{config.WEBHOOK_SECRET}?code={q}")
             notify.send(f"🔁 Mã '{code}' bị LẶP đồng bộ (KV1/KV2 nhảy qua lại, thường do "
                         f"SP cha biến thể / đa đơn vị khác nhau giữa 2 tài khoản). ĐÃ DỪNG "
-                        f"tự sync mã này — cần thống nhất/chỉnh tay ở 2 tài khoản.")
+                        f"tự sync mã này.\n"
+                        f"Dao động {lo:g} ↔ {hi:g} — số ĐÚNG thường = {hi:g} (tồn gốc trước bán)."
+                        f"{link}")
         store.log_sync("stock", config.ACCOUNTS[src].name,
                        config.other_account(src).name, code, None, onhand, cost,
                        "LOOP_STOPPED", detail="tan suat cao", notif_id=notif_id, reason="loop")
