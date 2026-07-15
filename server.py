@@ -102,6 +102,11 @@ def _startup():
     threading.Thread(target=_heartbeat_loop, daemon=True, name="heartbeat").start()
     if config.WEBHOOK_CHECK_MINUTES > 0:
         threading.Thread(target=_webhook_check_loop, daemon=True, name="webhook-guard").start()
+    if config.CONSISTENCY_CHECK_MINUTES > 0:
+        import consistency
+        threading.Thread(target=consistency.loop, daemon=True, name="consistency").start()
+        print(f"Kiểm nhất quán KV1=KV2 mỗi {config.CONSISTENCY_CHECK_MINUTES} phút "
+              f"(soi {config.CONSISTENCY_LOOKBACK_HOURS:g}h gần nhất).")
     if config.ENABLE_SCHEDULER:
         import scheduler
         threading.Thread(target=scheduler.loop, daemon=True, name="scheduler").start()

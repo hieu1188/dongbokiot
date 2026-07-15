@@ -202,6 +202,17 @@ def summary(hours=24):
             "total": sum(counts.values())}
 
 
+def recent_active_codes(hours=3):
+    """Danh sách MÃ có ghi tồn (WRITTEN) trong N giờ gần đây — để kiểm nhất quán
+    KV1 vs KV2 sau khi có giao dịch (bắt drift âm thầm)."""
+    since = time.time() - hours * 3600
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT DISTINCT code FROM sync_log "
+            "WHERE ts>=? AND result='WRITTEN' AND kind='stock'", (since,)).fetchall()
+        return [r[0] for r in rows if r[0]]
+
+
 def recent_error_codes(hours=48):
     """
     Danh sách mã có ERROR trong N giờ MÀ chưa có lần ghi THÀNH CÔNG sau đó

@@ -81,6 +81,18 @@ GUARD_MIN_BLOCK = float(_get("GUARD_MIN_BLOCK", "50") or 50)
 # nhưng CẢNH BÁO ngay để bạn kiểm tra (đề phòng lỗi dữ liệu).
 MASTER_MAX_DROP = float(_get("MASTER_MAX_DROP", "200") or 200)
 
+# --- KIỂM NHẤT QUÁN định kỳ (bắt "drift ÂM THẦM" KV1≠KV2) ---
+# Cứ mỗi CONSISTENCY_CHECK_MINUTES phút, soi lại các mã VỪA có giao dịch (trong
+# CONSISTENCY_LOOKBACK_HOURS giờ) xem KV1 có = KV2 không. Lệch quá TOLERANCE -> cảnh
+# báo Telegram kèm link /fix. Vá lỗ hổng: loop quá ngắn thì _is_looping không kịp báo.
+# 0 = tắt.
+CONSISTENCY_CHECK_MINUTES = int(_get("CONSISTENCY_CHECK_MINUTES", "15") or 15)
+CONSISTENCY_LOOKBACK_HOURS = float(_get("CONSISTENCY_LOOKBACK_HOURS", "3") or 3)
+# Chênh lệch KV1-KV2 lớn hơn số này mới coi là lệch (bỏ sai số làm tròn cực nhỏ).
+CONSISTENCY_TOLERANCE = float(_get("CONSISTENCY_TOLERANCE", "0.01") or 0.01)
+# Không báo lại CÙNG một mã trong bao nhiêu phút (chống spam).
+CONSISTENCY_ALERT_COOLDOWN = float(_get("CONSISTENCY_ALERT_COOLDOWN", "120") or 120)
+
 # --- Tự kiểm webhook: KiotViet hay tự TẮT webhook khi giao dịch tới server lỗi ---
 # Cứ mỗi WEBHOOK_CHECK_MINUTES phút, kiểm isActive; nếu bị tắt -> tự bật lại + báo.
 # 0 = tắt việc tự kiểm.
