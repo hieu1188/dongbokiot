@@ -16,26 +16,27 @@ import store
 import notify
 from kiotviet_client import KiotVietClient
 
-# --- Phát hiện LOOP đồng bộ ---
+# --- Phát hiện LOOP đồng bộ (theo DAO ĐỘNG) ---
 # Một số SP (cha biến thể / đa đơn vị) khi ghi onHand bị KiotViet tính lại -> revert ->
-# dội webhook giá trị KHÁC -> ta lại ghi -> lặp vô tận (spam + không hội tụ). Chống-loop
-# theo giá trị (expected_echo) không bắt được. Nên đếm tần suất: 1 mã bị ghi quá nhiều
-# lần trong cửa sổ ngắn -> coi là LOOP -> DỪNG sync mã đó + cảnh báo 1 lần.
-_LOOP_WINDOW = 600      # giây (10 phút)
-_LOOP_MAX = 6           # >= số lần ghi trong cửa sổ -> loop
-_write_hist = {}        # code -> [timestamps ghi gần đây]
+# dội webhook giá trị KHÁC -> lặp vô tận, tồn NHẢY QUA LẠI A<->B. Đếm-tần-suất bắt hụt
+# loop CHẬM. Nên phát hiện theo DAO ĐỘNG: nếu giá trị sắp ghi ĐÃ TỪNG ghi cho mã này
+# >= 2 lần trong cửa sổ (tức đang quay về giá trị cũ nhiều lần) -> LOOP. Bán/hủy thật
+# chỉ ghi mỗi giá trị 1 lần nên KHÔNG bị nhầm.
+_LOOP_WINDOW = 1200     # giây (20 phút) - đủ dài để bắt loop chậm
+_LOOP_MAX = 2           # giá trị lặp lại >= số này -> dao động -> loop
+_write_hist = {}        # code -> [(timestamp, value) ghi gần đây]
 _loop_alerted = {}      # code -> lần cảnh báo cuối (để không spam)
 
 
-def _is_looping(code) -> bool:
+def _is_looping(code, value) -> bool:
     now = time.time()
-    hist = [t for t in _write_hist.get(code, []) if now - t < _LOOP_WINDOW]
+    hist = [(t, v) for t, v in _write_hist.get(code, []) if now - t < _LOOP_WINDOW]
     _write_hist[code] = hist
-    return len(hist) >= _LOOP_MAX
+    return sum(1 for t, v in hist if abs(v - value) < 1e-9) >= _LOOP_MAX
 
 
-def _record_write(code):
-    _write_hist.setdefault(code, []).append(time.time())
+def _record_write(code, value):
+    _write_hist.setdefault(code, []).append((time.time(), value))
 
 # Mỗi tài khoản 1 client (tái dùng token)
 _clients = {
@@ -75,8 +76,8 @@ def _handle_stock(event: dict):
         print(f"[SKIP-echo] {src} {code}={onhand} (do ta tự ghi, bỏ qua)")
         return
 
-    # 2b) Phát hiện LOOP theo tần suất: mã bị ghi lặp quá nhiều -> DỪNG sync + báo 1 lần.
-    if _is_looping(code):
+    # 2b) Phát hiện LOOP theo dao động: giá trị nhảy qua lại -> DỪNG sync + báo 1 lần.
+    if _is_looping(code, onhand):
         now = time.time()
         if now - _loop_alerted.get(code, 0) > 3600:
             _loop_alerted[code] = now
@@ -118,7 +119,7 @@ def _handle_stock(event: dict):
         print(f"[{r['result']}] {src} -> {target.name}: {code} "
               f"{r['old']} -> {r['new']} (cost={cost})")
         if r["result"] == "WRITTEN":
-            _record_write(code)   # đếm để phát hiện loop
+            _record_write(code, onhand)   # ghi lại giá trị để phát hiện dao động
         store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
                        r["old"], r["new"], cost, r["result"], notif_id=notif_id,
                        reason="stock")
