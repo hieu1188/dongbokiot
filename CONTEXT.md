@@ -62,6 +62,19 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
   DRY_RUN, ghi/lỗi 24h, snapshot cuối), lọc theo result/kind/hours/code, xuất CSV,
   banner mã lỗi treo. Lỗi ghi tồn → cảnh báo Telegram realtime (notify.py).
   Phục hồi: `reconcile.py --retry-errors` chạy lại các mã ERROR còn treo (đặt cả 2 = KV1).
+- **LOOP SP đa đơn vị/biến thể + CÔNG CỤ SỬA NHANH (`fixtool.py`, `/fix`)**: vài SP đa
+  đơn vị (mã quy đổi conversionValue≠1) / biến thể khi ghi onHand bị KiotViet TÍNH LẠI →
+  dội webhook giá trị KHÁC → dao động A↔B. `_is_looping` (sync.py, theo DAO ĐỘNG: 1 giá trị
+  ghi lại ≥2 lần trong 20') → DỪNG sync mã đó + báo Telegram → 2 KV KẸT số sai, phải chỉnh
+  tay. ⚠ BÀI HỌC (2026-07-15): đơn BÁN-RỒI-HỦY ở KV2 nếu gặp loop thì phần HỦY (cộng lại)
+  bị ghi đè mất → tồn kẹt ở số ĐÃ BÁN. Cách chữa: **`fixtool.py`** — `analyze(code)` đọc tồn
+  LIVE 2 KV + các MỨC dao động (giá trị onHand LẶP ≥2 lần trong sổ cái = tồn gốc; LỌC BỎ giá
+  trị chỉ xuất hiện 1 lần vì đó là bán thật lẻ, không phải loop). `apply(code,value)` ghi cả
+  2 KV + mark_expected_echo (không kích loop mới) + log reason=manualfix. Dùng: CLI
+  `python fixtool.py "MÃ" [--set N]` hoặc web `/fix/{secret}?code=…`. ⚠ ĐỈNH chỉ là GỢI Ý:
+  mã BÁN HẾT → số đúng là mức THẤP (không phải đỉnh); có bán thật xen giữa → thấp hơn đỉnh.
+  Luôn XEM các mức rồi mới ghi. Cảnh báo loop Telegram nay kèm "dao động lo↔hi, số đúng
+  thường = hi" + link /fix.
 - **Chống oversell khi SERVER CHẾT (reconcile)** — điểm yếu lớn nhất của webhook:
   server chết → webhook thay đổi tồn MẤT, sống lại KHÔNG tự bắt kịp → KV1/KV2 lệch.
   - KHÔNG thể đoán số đúng từ 2 con số hiện tại (bán phải lấy thấp, nhập phải lấy
