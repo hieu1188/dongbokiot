@@ -75,6 +75,21 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
   mã BÁN HẾT → số đúng là mức THẤP (không phải đỉnh); có bán thật xen giữa → thấp hơn đỉnh.
   Luôn XEM các mức rồi mới ghi. Cảnh báo loop Telegram nay kèm "dao động lo↔hi, số đúng
   thường = hi" + link /fix.
+- **DEBOUNCE + ĐỌC LẠI NGUỒN (chống drift do webhook TRỄ/DỒN CỤC)** — gốc rễ loop đa
+  đơn vị: ⚠ BÀI HỌC (2026-07-15, test thực tế): KiotViet bắn webhook theo CỤC (dồn event
+  trễ ~vài phút rồi đẩy một lúc — quan sát 80–85 event/phút rồi im). Với SP đa đơn vị (mã
+  gốc "Cái" + mã quy đổi "5 Cái" cùng kho), một giao dịch làm CẢ HAI mã bắn webhook ở 2
+  THANG SỐ khác nhau; khi dồn cục, chúng đến LỘN THỨ TỰ → echo cũ (giá trị đã bán) đến SAU
+  lúc khôi phục → ghi đè, để KV kẹt ở số sai. Drift này NGẪU NHIÊN theo thời điểm (test bán
+  +hủy: rơi vào lúc dồn cục thì KV1 lệch; lúc yên tĩnh thì sạch) và ÂM THẦM (loop quá ngắn,
+  dưới ngưỡng `_is_looping`). GIẢI PHÁP (sync.py): (1) **DEBOUNCE** — event 'stock' không
+  ghi ngay, gộp theo khoá (nguồn, mã) chờ `DEBOUNCE_SECONDS` (mỗi event reset, trần
+  `DEBOUNCE_MAX_HOLD`) tới khi cục LẮNG rồi xử lý MỘT lần với giá trị mới nhất (bỏ giá trị
+  trung gian cũ). Khoá theo (nguồn,mã) chứ KHÔNG gộp chung 2 tài khoản (để không mất đơn khi
+  cả 2 cùng bán 1 mã). (2) **ĐỌC LẠI NGUỒN** (`RESYNC_READ_SOURCE`) — lúc ghi, đọc tồn THẬT
+  từ tài khoản nguồn qua API thay vì tin giá trị webhook (có thể đã cũ) → không bao giờ áp
+  số cũ. Echo-check vẫn dùng giá trị webhook (echo mang đúng giá trị ta ghi). Bật/tắt bằng
+  `DEBOUNCE_ENABLED`. Đánh đổi: sync chậm ~`DEBOUNCE_SECONDS` (chấp nhận được, đổi lấy hết drift).
 - **Chống oversell khi SERVER CHẾT (reconcile)** — điểm yếu lớn nhất của webhook:
   server chết → webhook thay đổi tồn MẤT, sống lại KHÔNG tự bắt kịp → KV1/KV2 lệch.
   - KHÔNG thể đoán số đúng từ 2 con số hiện tại (bán phải lấy thấp, nhập phải lấy

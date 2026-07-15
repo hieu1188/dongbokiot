@@ -51,6 +51,21 @@ PORT = int(_get("PORT", "8000") or 8000)
 # Tự động tạo sản phẩm sang tài khoản kia khi phát hiện mã hàng mới (true/false).
 AUTO_CREATE_PRODUCT = _get("AUTO_CREATE_PRODUCT", "true").lower() != "false"
 
+# --- DEBOUNCE / GỘP webhook (chống drift do webhook TRỄ + DỒN CỤC) ---
+# KiotViet bắn webhook theo CỤC (dồn nhiều event trễ rồi đẩy một lúc) -> với SP đa
+# đơn vị (nhiều mã cùng kho) các event đến LỘN THỨ TỰ -> ghi giá trị CŨ đè giá trị mới.
+# Cách chặn: khi nhận webhook mã X -> KHÔNG ghi ngay, đợi cục LẮNG (DEBOUNCE_SECONDS),
+# gộp chỉ giữ event MỚI NHẤT, rồi lúc ghi ĐỌC LẠI tồn THẬT từ tài khoản nguồn (bỏ giá
+# trị webhook có thể đã cũ). true = bật (khuyến nghị).
+DEBOUNCE_ENABLED = _get("DEBOUNCE_ENABLED", "true").lower() != "false"
+# Đợi bao lâu sau event CUỐI của một mã rồi mới ghi (giây). Mỗi event mới reset lại.
+DEBOUNCE_SECONDS = float(_get("DEBOUNCE_SECONDS", "8") or 8)
+# Trần chờ tối đa kể từ event ĐẦU của mã (tránh chờ vô tận khi cục kéo dài).
+DEBOUNCE_MAX_HOLD = float(_get("DEBOUNCE_MAX_HOLD", "30") or 30)
+# Lúc ghi, đọc lại tồn THẬT từ tài khoản nguồn thay vì tin giá trị trong webhook
+# (đây là lớp chống drift chính khi webhook trễ). true = bật.
+RESYNC_READ_SOURCE = _get("RESYNC_READ_SOURCE", "true").lower() != "false"
+
 # --- Cảnh báo (Telegram). Để trống -> chỉ in log, không gửi. ---
 TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID")

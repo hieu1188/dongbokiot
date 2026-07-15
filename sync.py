@@ -46,10 +46,53 @@ _clients = {
 
 _q: "queue.Queue[dict]" = queue.Queue()
 
+# --- DEBOUNCE: gộp webhook trễ/dồn cục theo (nguồn, mã) ---
+# KiotViet bắn webhook theo CỤC (dồn event trễ đẩy một lúc). Với SP đa đơn vị, các
+# event mã anh em đến LỘN THỨ TỰ -> ghi giá trị CŨ đè giá trị mới -> drift ÂM THẦM.
+# Ta hoãn ghi tới khi cục LẮNG rồi mới xử lý MỘT lần với giá trị mới nhất; và lúc ghi
+# ĐỌC LẠI tồn thật từ nguồn (xem _handle_stock) -> không còn áp giá trị cũ.
+# Khoá theo (nguồn, mã) — KHÔNG gộp chung 2 tài khoản để không mất đơn khi cả 2 cùng bán 1 mã.
+_pending_lock = threading.Lock()
+_pending: dict = {}   # key "src\x00code" -> {"event","deadline","first"}
+
+
+def _pending_key(event: dict) -> str:
+    return f"{event['source_retailer']}\x00{event['code']}"
+
+
+def _debounce_put(event: dict):
+    """Nạp event vào bộ đệm gộp; mỗi event mới của cùng (nguồn,mã) reset hạn chờ,
+    nhưng không vượt trần DEBOUNCE_MAX_HOLD kể từ event đầu."""
+    now = time.time()
+    with _pending_lock:
+        cur = _pending.get(_pending_key(event))
+        first = cur["first"] if cur else now
+        deadline = min(now + config.DEBOUNCE_SECONDS, first + config.DEBOUNCE_MAX_HOLD)
+        _pending[_pending_key(event)] = {"event": event, "deadline": deadline, "first": first}
+
+
+def _debounce_loop():
+    """Định kỳ đẩy các mã đã 'lắng' (quá hạn chờ) sang hàng đợi xử lý thật."""
+    while True:
+        now = time.time()
+        ripe = []
+        with _pending_lock:
+            for k, info in list(_pending.items()):
+                if info["deadline"] <= now:
+                    ripe.append(info["event"])
+                    del _pending[k]
+        for ev in ripe:
+            _q.put(ev)
+        time.sleep(1)
+
 
 def enqueue(event: dict):
-    """server.py gọi hàm này để đẩy sự kiện vào hàng đợi rồi trả 200 ngay."""
-    _q.put(event)
+    """server.py gọi hàm này để đẩy sự kiện vào hàng đợi rồi trả 200 ngay.
+    Event 'stock' đi qua DEBOUNCE (gộp cục webhook trễ); 'product' vào thẳng."""
+    if event.get("kind") != "product" and config.DEBOUNCE_ENABLED:
+        _debounce_put(event)
+    else:
+        _q.put(event)
 
 
 def _handle(event: dict):
@@ -58,6 +101,24 @@ def _handle(event: dict):
         _handle_product(event)
     else:
         _handle_stock(event)
+
+
+def _read_source_onhand(client, code):
+    """Đọc LẠI tồn thật của 'code' tại kho dùng chung của tài khoản NGUỒN (giữ số lẻ).
+    Dùng để bỏ giá trị webhook có thể đã CŨ (do trễ/dồn cục)."""
+    try:
+        p = client.get_product_by_code(code)
+    except Exception:  # noqa
+        return None
+    if not p:
+        return None
+    for inv in (p.get("inventories") or []):
+        if int(inv.get("branchId", -1)) == client.acc.branch_id:
+            oh = inv.get("onHand")
+            if oh is None:
+                return None
+            return int(oh) if float(oh).is_integer() else float(oh)
+    return None
 
 
 def _handle_stock(event: dict):
@@ -72,9 +133,19 @@ def _handle_stock(event: dict):
         return
 
     # 2) Chống loop: thay đổi này có phải do CHÍNH TA vừa ghi vào 'src' không?
+    #    (kiểm bằng GIÁ TRỊ WEBHOOK — vì echo mang đúng giá trị ta vừa ghi)
     if store.consume_expected_echo(src, code, onhand):
         print(f"[SKIP-echo] {src} {code}={onhand} (do ta tự ghi, bỏ qua)")
         return
+
+    # 2c) ĐỌC LẠI tồn THẬT từ nguồn (lớp chống drift chính khi webhook trễ/dồn cục):
+    #     giá trị trong webhook có thể là ảnh CŨ; đọc lại lúc này (sau debounce, cục đã
+    #     lắng) cho giá trị đã ổn định -> không áp nhầm số cũ đè số mới.
+    if config.RESYNC_READ_SOURCE:
+        fresh = _read_source_onhand(_clients[src], code)
+        if fresh is not None and fresh != onhand:
+            print(f"[RESYNC] {src} {code}: webhook={onhand} -> đọc lại nguồn={fresh}")
+            onhand = fresh
 
     # 2b) Phát hiện LOOP theo dao động: giá trị nhảy qua lại -> DỪNG sync + báo 1 lần.
     if _is_looping(code, onhand):
@@ -207,4 +278,10 @@ def start_worker():
     store.init_db()
     t = threading.Thread(target=_worker, daemon=True, name="sync-worker")
     t.start()
-    print("✔ Sync worker đã chạy.")
+    if config.DEBOUNCE_ENABLED:
+        threading.Thread(target=_debounce_loop, daemon=True, name="debounce").start()
+        print(f"✔ Sync worker + DEBOUNCE ({config.DEBOUNCE_SECONDS:g}s, trần "
+              f"{config.DEBOUNCE_MAX_HOLD:g}s, đọc-lại-nguồn="
+              f"{'BẬT' if config.RESYNC_READ_SOURCE else 'tắt'}) đã chạy.")
+    else:
+        print("✔ Sync worker đã chạy (debounce TẮT).")
