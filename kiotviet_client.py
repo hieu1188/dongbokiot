@@ -279,6 +279,13 @@ class KiotVietClient:
             print(f"[{self.acc.name}] ⚠ Không tìm thấy mã '{code}' -> bỏ qua.")
             return {"result": "NOT_FOUND", "old": None, "new": target_onhand}
 
+        # SP ĐƠN-VỊ-QUY-ĐỔI (conversionValue != 1, vd "5 Cái", "10 cái"): dùng CHUNG kho
+        # với đơn vị gốc. Ghi onHand vào nó bị KiotViet quy đổi lại -> ra số lẻ -> dội
+        # ngược -> LOOP. Bỏ qua; chỉ sync đơn vị GỐC (đơn vị dẫn xuất tự tính theo kho chung).
+        cv = product.get("conversionValue")
+        if cv is not None and cv != 1:
+            return {"result": "SKIP_MULTIUNIT", "old": None, "new": target_onhand}
+
         current = None
         for inv in product.get("inventories", []):
             if int(inv.get("branchId", -1)) == self.acc.branch_id:
