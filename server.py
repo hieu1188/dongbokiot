@@ -31,7 +31,7 @@ import config
 import store
 import sync
 import notify
-from kiotviet_client import _epoch_to_vn  # hiển thị giờ VN (Railway chạy UTC)
+from kiotviet_client import _epoch_to_vn, _parse_vn_ts  # giờ VN (Railway chạy UTC)
 
 app = FastAPI(title="KiotViet Stock Sync")
 
@@ -147,10 +147,12 @@ def _csv_cell(x):
 
 @app.get("/audit/{secret}")
 def audit(secret: str, code: str = "", result: str = "", kind: str = "",
-          source: str = "", hours: str = "", limit: str = "300", fmt: str = "html"):
+          source: str = "", hours: str = "", limit: str = "300", fmt: str = "html",
+          frm: str = "", to: str = ""):
     """Sổ cái đồng bộ — tra cứu + kiểm soát. Bảo vệ bằng WEBHOOK_SECRET trong URL.
 
-    Lọc: ?code= &result=ERROR &kind=stock &source=Kiot_Chinh &hours=24 &limit=  &fmt=csv
+    Lọc: ?code= &result=ERROR &kind=stock &hours=24 &limit=  &fmt=csv
+    Hoặc khoảng ngày (giờ VN): &frm=2026-07-14 &to=2026-07-15 (trần dòng nâng lên 8000).
     """
     if secret != config.WEBHOOK_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
@@ -165,10 +167,16 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
     hours = _int(hours, 0)
     limit = _int(limit, 300)
 
-    from_ts = (time.time() - hours * 3600) if hours else None
-    logs = store.query_logs(limit=min(int(limit), 2000), code=code.strip() or None,
+    # Khoảng NGÀY (giờ VN) — ưu tiên hơn 'hours'; nâng trần để lấy trọn 1 khoảng.
+    from_ts = _parse_vn_ts(frm.strip()) if frm.strip() else None
+    to_ts = _parse_vn_ts(to.strip()) if to.strip() else None
+    cap = 8000 if (from_ts or to_ts) else 2000
+    if from_ts is None and hours:
+        from_ts = time.time() - hours * 3600
+    logs = store.query_logs(limit=min(int(limit) if not (from_ts or to_ts) else cap, cap),
+                            code=code.strip() or None,
                             result=result.strip() or None, kind=kind.strip() or None,
-                            source=source.strip() or None, from_ts=from_ts)
+                            source=source.strip() or None, from_ts=from_ts, to_ts=to_ts)
 
     # ---- Xuất CSV ----
     if fmt == "csv":
