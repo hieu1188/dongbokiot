@@ -71,8 +71,33 @@ def _debounce_put(event: dict):
         _pending[_pending_key(event)] = {"event": event, "deadline": deadline, "first": first}
 
 
+# --- GỘP GHI SP đa đơn vị: mã cùng SP cha chỉ ghi 1 lần trong cửa sổ ---
+_code_master = {}          # (source, code) -> master_key (None nếu là SP thường)
+_recent_master_push = {}   # (source, master_key) -> ts lần đẩy ghi gần nhất
+
+
+def _master_key(source, code):
+    """Khoá nhóm SP đa đơn vị: masterProductId (mã con) hoặc id chính nó (SP cha).
+    SP thường (không biến thể/đa đơn vị) -> None (không gộp với ai)."""
+    ck = (source, code)
+    if ck in _code_master:
+        return _code_master[ck]
+    key = None
+    try:
+        p = _clients[source].get_product_by_code(code)
+        if p:
+            if p.get("masterProductId") or p.get("hasVariants"):
+                key = p.get("masterProductId") or p.get("id")
+            _code_master[ck] = key   # cache cả None (đã tra rồi, khỏi tra lại)
+    except Exception:  # noqa
+        key = None                    # lỗi tra -> không cache, thử lại lần sau
+    return key
+
+
 def _debounce_loop():
-    """Định kỳ đẩy các mã đã 'lắng' (quá hạn chờ) sang hàng đợi xử lý thật."""
+    """Định kỳ đẩy các mã đã 'lắng' (quá hạn chờ) sang hàng đợi xử lý thật.
+    GỘP SP đa đơn vị: mã cùng SP cha vừa đẩy trong cửa sổ -> bỏ ghi thừa (KiotViet tự
+    cập nhật mã anh em) -> giảm phiếu cân bằng kho."""
     while True:
         now = time.time()
         ripe = []
@@ -82,6 +107,16 @@ def _debounce_loop():
                     ripe.append(info["event"])
                     del _pending[k]
         for ev in ripe:
+            if config.MULTIUNIT_COLLAPSE:
+                src = ev["source_retailer"]
+                mk = _master_key(src, ev["code"])
+                if mk is not None:
+                    t = time.time()
+                    if t - _recent_master_push.get((src, mk), 0) < config.MULTIUNIT_COLLAPSE_WINDOW:
+                        print(f"[COLLAPSE] bỏ ghi thừa {src} {ev['code']} "
+                              f"(SP cha {mk} vừa sync -> KiotViet tự cập nhật mã anh em)")
+                        continue
+                    _recent_master_push[(src, mk)] = t
             _q.put(ev)
         time.sleep(1)
 

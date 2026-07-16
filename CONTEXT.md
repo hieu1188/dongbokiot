@@ -111,6 +111,15 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
   từ tài khoản nguồn qua API thay vì tin giá trị webhook (có thể đã cũ) → không bao giờ áp
   số cũ. Echo-check vẫn dùng giá trị webhook (echo mang đúng giá trị ta ghi). Bật/tắt bằng
   `DEBOUNCE_ENABLED`. Đánh đổi: sync chậm ~`DEBOUNCE_SECONDS` (chấp nhận được, đổi lấy hết drift).
+- **GỘP GHI SP ĐA ĐƠN VỊ (`MULTIUNIT_COLLAPSE`, giảm PHIẾU cân bằng kho)**: mỗi `PUT onHand`
+  KiotViet TỰ tạo 1 phiếu cân bằng kho; SP đa đơn vị 1 giao dịch đổi NHIỀU mã (gốc + quy đổi)
+  → nhiều phiếu, làm rối THẺ KHO. Ghi 1 mã là KiotViet tự cập nhật mã anh em (chung pool tồn).
+  Nên `_debounce_loop` nhóm theo `_master_key(source,code)` = masterProductId (mã con) hoặc id
+  (SP cha); cùng SP cha VỪA đẩy trong `MULTIUNIT_COLLAPSE_WINDOW`s → BỎ mã anh em. An toàn:
+  không bỏ sót (chung 1 tồn); SP thường (master_key=None) không gộp.
+- **THẺ KHO SẠCH (`/card`, `invoices_for_code`)**: thay thẻ kho KiotViet (bị phiếu cân bằng
+  làm nhiễu). `/card/<secret>?code=X` gộp theo thời gian: lịch sử SYNC của mã (sổ cái, nhanh)
+  + BÁN/hủy thật CẢ 2 KV (hóa đơn, `?invoices=1`, chậm hơn). Giúp lần "lỗi phát sinh ở đâu".
 - **KIỂM NHẤT QUÁN định kỳ (`consistency.py`, bắt DRIFT ÂM THẦM)**: ⚠ BÀI HỌC (2026-07-15):
   khi 2 KV lệch nhau nhưng loop QUÁ NGẮN (chỉ trao đổi 2–3 lần rồi lắng, dưới ngưỡng
   `_is_looping`) → KHÔNG có cảnh báo nào, lệch nằm im. Vá: cứ `CONSISTENCY_CHECK_MINUTES`

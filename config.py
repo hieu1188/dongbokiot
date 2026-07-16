@@ -66,6 +66,15 @@ DEBOUNCE_MAX_HOLD = float(_get("DEBOUNCE_MAX_HOLD", "30") or 30)
 # (đây là lớp chống drift chính khi webhook trễ). true = bật.
 RESYNC_READ_SOURCE = _get("RESYNC_READ_SOURCE", "true").lower() != "false"
 
+# --- GỘP GHI SP ĐA ĐƠN VỊ (giảm phiếu cân bằng kho thừa) ---
+# Một giao dịch SP đa đơn vị làm NHIỀU mã cùng SP cha đổi tồn (mã gốc + mã quy đổi),
+# mỗi mã ghi 1 lần -> 2 phiếu. Nhưng GHI 1 MÃ là KiotViet TỰ cập nhật các mã anh em
+# (chung 1 kho). Nên trong cửa sổ COLLAPSE_WINDOW giây, các mã cùng SP cha chỉ GHI 1 LẦN,
+# các mã anh em còn lại BỎ QUA (không tạo phiếu thừa). An toàn: không bỏ sót vì chúng
+# chung 1 pool tồn. true = bật.
+MULTIUNIT_COLLAPSE = _get("MULTIUNIT_COLLAPSE", "true").lower() != "false"
+MULTIUNIT_COLLAPSE_WINDOW = float(_get("MULTIUNIT_COLLAPSE_WINDOW", "25") or 25)
+
 # --- Cảnh báo (Telegram). Để trống -> chỉ in log, không gửi. ---
 TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID")

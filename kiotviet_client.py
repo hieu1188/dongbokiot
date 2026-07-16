@@ -266,6 +266,46 @@ class KiotVietClient:
         # gọn số nguyên
         return {k: (int(v) if float(v).is_integer() else v) for k, v in sold.items()}
 
+    def invoices_for_code(self, code: str, from_ts: float, to_ts: float) -> list:
+        """Các dòng hóa đơn (bán) chạm 'code' trong [from_ts, to_ts].
+        Trả list {ts, invoice_code, status, qty, customer}. Dùng cho 'thẻ kho sạch'."""
+        d_from = _epoch_to_vn(from_ts).date() - _timedelta(days=1)
+        d_to = _epoch_to_vn(to_ts).date() + _timedelta(days=1)
+        out, current, page, seen = [], 0, 100, set()
+        while True:
+            url = (f"{BASE_URL}/invoices?fromPurchaseDate={d_from.isoformat()}"
+                   f"&toPurchaseDate={d_to.isoformat()}&pageSize={page}&currentItem={current}"
+                   f"&orderBy=purchaseDate&orderDirection=Desc")
+            r = requests.get(url, headers=self._headers(), timeout=30, verify=VERIFY_TLS)
+            if r.status_code == 429:
+                time.sleep(3); continue
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if not data:
+                break
+            ids = {d.get("code") for d in data}
+            if ids and ids.issubset(seen):
+                break
+            seen.update(ids)
+            for inv in data:
+                pts = _parse_vn_ts(inv.get("purchaseDate"))
+                if pts is None or pts < from_ts or pts > to_ts:
+                    continue
+                for it in (inv.get("invoiceDetails") or []):
+                    if it.get("productCode") == code:
+                        out.append({
+                            "ts": pts,
+                            "invoice_code": inv.get("code"),
+                            "status": inv.get("statusValue") or "",
+                            "qty": it.get("quantity"),
+                            "customer": inv.get("customerName") or "",
+                        })
+            if len(data) < page:
+                break
+            current += len(data)
+            time.sleep(0.2)
+        return out
+
     # ---------------- GHI TỒN ----------------
     def set_onhand(self, code: str, target_onhand, dry_run: bool, cost=None) -> dict:
         """

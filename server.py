@@ -463,6 +463,114 @@ def _url_q(s):
     return urllib.parse.quote(s)
 
 
+@app.get("/card/{secret}", response_class=HTMLResponse)
+def card(secret: str, code: str = "", days: str = "3", invoices: str = ""):
+    """THẺ KHO SẠCH per-mã: gộp bán 2 KV (hóa đơn) + lịch sử sync (sổ cái), theo thời
+    gian — để lần lỗi phát sinh, KHÔNG bị phiếu cân bằng tự động làm nhiễu.
+    ?days=N khoảng ngày, ?invoices=1 để tải thêm bán/trả thật (chậm hơn)."""
+    if secret != config.WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    import fixtool
+
+    def esc(x):
+        return (str(x) if x is not None else "").replace("&", "&amp;").replace(
+            "<", "&lt;").replace('"', "&quot;")
+    base = f"/card/{esc(secret)}"
+    code = code.strip()
+
+    def _int(s, d):
+        try:
+            return int(str(s).strip())
+        except (ValueError, TypeError):
+            return d
+    days = max(1, _int(days, 3))
+
+    inner = ""
+    if code:
+        kv1 = fixtool._live_onhand(config.KV1, code)
+        kv2 = fixtool._live_onhand(config.KV2, code)
+        match = (kv1 is not None and kv1 == kv2)
+        head = (f'<div style="margin:8px 0 12px;font-size:15px">Tồn hiện tại — '
+                f'<b>KV1 = {esc(kv1)}</b> &nbsp; <b>KV2 = {esc(kv2)}</b> &nbsp; '
+                + ('<span style="color:#0a7d28">✔ khớp</span>' if match
+                   else '<span style="color:#c0271c">✗ LỆCH</span>')
+                + f' &nbsp;·&nbsp; <a href="/fix/{esc(secret)}?code={_url_q(code)}">Sửa →</a></div>')
+
+        from_ts = time.time() - days * 86400
+        events = []   # (ts, loai, mau, noidung_html)
+
+        # 1) Lịch sử SYNC (sổ cái) — luôn có, nhanh
+        for r in store.query_logs(code=code, from_ts=from_ts, limit=500):
+            col = _RESULT_COLOR.get(r["result"], "#333")
+            chg = f'{"" if r["old_onhand"] is None else _g(r["old_onhand"])}→{_g(r["new_onhand"])}'
+            events.append((r["ts"], "Đồng bộ", "#1257c2",
+                           f'{esc(r["source"])}→{esc(r["target"])}: {chg} '
+                           f'<span style="color:{col}">[{esc(r["result"])}]</span>'))
+
+        # 2) BÁN thật 2 KV (hóa đơn) — chỉ khi ?invoices=1 (chậm hơn)
+        loaded_inv = False
+        if invoices:
+            for acc in (config.KV1, config.KV2):
+                try:
+                    for iv in fixtool._cl(acc.retailer).invoices_for_code(code, from_ts, time.time()):
+                        huy = "Đã hủy" in (iv["status"] or "")
+                        events.append((iv["ts"], f"Bán {acc.name}",
+                                       "#8a6d00" if huy else "#0a7d28",
+                                       f'SL={_g(iv["qty"])} · {esc(iv["customer"]) or "khách lẻ"} '
+                                       f'· HD {esc(iv["invoice_code"])} '
+                                       f'<b style="color:{"#c0271c" if huy else "#0a7d28"}">'
+                                       f'[{esc(iv["status"])}]</b>'))
+                    loaded_inv = True
+                except Exception as e:  # noqa
+                    events.append((time.time(), "Lỗi", "#c0271c",
+                                   f'không tải được hóa đơn {esc(acc.name)}: {esc(e)}'))
+
+        events.sort(key=lambda x: -x[0])
+        rows = []
+        for ts, loai, col, html in events:
+            when = _epoch_to_vn(ts).strftime("%d/%m %H:%M:%S")
+            rows.append(f'<tr><td>{when}</td>'
+                        f'<td style="color:{col};font-weight:600">{esc(loai)}</td>'
+                        f'<td>{html}</td></tr>')
+        table = ('<table><thead><tr><th>Thời gian</th><th>Loại</th><th>Chi tiết</th></tr>'
+                 '</thead><tbody>' + ("".join(rows) or
+                 '<tr><td colspan="3" style="text-align:center;color:#888">Chưa có phát sinh</td></tr>')
+                 + '</tbody></table>')
+        invbtn = ('' if loaded_inv else
+                  f' &nbsp;·&nbsp; <a href="{base}?code={_url_q(code)}&days={days}&invoices=1">'
+                  f'＋ Tải bán/trả thật (chậm ~15s)</a>')
+        inner = (head + f'<div style="margin:6px 0;font-size:13px;color:#666">'
+                 f'Khoảng: {days} ngày · '
+                 f'<a href="{base}?code={_url_q(code)}&days=1">1</a>/'
+                 f'<a href="{base}?code={_url_q(code)}&days=3">3</a>/'
+                 f'<a href="{base}?code={_url_q(code)}&days=7">7</a>/'
+                 f'<a href="{base}?code={_url_q(code)}&days=30">30</a> ngày{invbtn}</div>'
+                 + table)
+
+    return HTMLResponse(f"""<!doctype html><html lang="vi"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thẻ kho sạch</title>
+    <style>
+      body{{font-family:system-ui,Segoe UI,Arial;margin:24px;color:#222}}
+      h2{{margin:0 0 4px}} a{{color:#1257c2;text-decoration:none}} a:hover{{text-decoration:underline}}
+      input,button{{padding:6px 9px;font-size:14px}} button{{cursor:pointer}}
+      table{{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}}
+      th,td{{border:1px solid #e3e3e3;padding:6px 9px;vertical-align:top}}
+      th{{background:#f6f6f6;text-align:left}}
+    </style></head><body>
+    <h2>📇 Thẻ kho sạch (gộp bán 2 KV + lịch sử đồng bộ)</h2>
+    <p style="color:#555;max-width:680px;font-size:14px">Tra 1 mã để thấy TOÀN BỘ phát sinh
+    thật ở cả 2 tài khoản theo thời gian — không bị phiếu cân bằng tự động làm nhiễu như thẻ kho KiotViet.</p>
+    <form method="get" action="{base}">
+      <input name="code" placeholder="Mã hàng…" value="{esc(code)}" style="width:280px" autofocus>
+      <button type="submit">Xem</button>
+    </form>
+    {inner}
+    <p style="margin-top:16px"><a href="/drift/{esc(secret)}">← Báo cáo lệch</a> ·
+    <a href="/audit/{esc(secret)}">Sổ cái</a></p>
+    </body></html>""")
+
+
 def _qs(code, result, kind, source, hours):
     """Dựng lại query-string hiện tại (để nút Xuất CSV giữ nguyên bộ lọc)."""
     parts = []
