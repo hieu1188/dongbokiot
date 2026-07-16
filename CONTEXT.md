@@ -69,6 +69,11 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
   (stock/product/reconcile/retry). Trang /audit có bảng tổng sức khỏe (heartbeat,
   DRY_RUN, ghi/lỗi 24h, snapshot cuối), lọc theo result/kind/hours/code, xuất CSV,
   banner mã lỗi treo. Lỗi ghi tồn → cảnh báo Telegram realtime (notify.py).
+- **KIỂM TỨC THÌ sau sync (`consistency.schedule_verify` + `_verify_loop`)**: mỗi lần sync
+  ghi một mã (kết quả ≠ NOOP) hoặc loop dừng → `sync._verify_after_sync(code)` hẹn đọc lại
+  mã đó sau `CONSISTENCY_VERIFY_DELAY` giây (đợi KiotViet lắng); nếu KV1 ≠ KV2 (ghi hụt /
+  KiotViet tính lại SP đa đơn vị / loop để lệch) → CẢNH BÁO NGAY, không đợi nhịp quét 15'.
+  Dùng chung cooldown với quét định kỳ. Bật/tắt `CONSISTENCY_VERIFY_ON_SYNC`.
   Phục hồi: `reconcile.py --retry-errors` chạy lại các mã ERROR còn treo (đặt cả 2 = KV1).
 - **LOOP SP đa đơn vị/biến thể + CÔNG CỤ SỬA NHANH (`fixtool.py`, `/fix`)**: vài SP đa
   đơn vị (mã quy đổi conversionValue≠1) / biến thể khi ghi onHand bị KiotViet TÍNH LẠI →

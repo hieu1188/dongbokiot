@@ -121,6 +121,16 @@ def _read_source_onhand(client, code):
     return None
 
 
+def _verify_after_sync(code):
+    """Hẹn bộ kiểm nhất quán đọc lại mã này sau vài giây; còn lệch -> cảnh báo NGAY.
+    Import trễ để tránh vòng lặp import lúc nạp module."""
+    try:
+        import consistency
+        consistency.schedule_verify(code)
+    except Exception as e:  # noqa
+        print(f"[VERIFY] không hẹn kiểm được {code}: {e}", flush=True)
+
+
 def _handle_stock(event: dict):
     src = event["source_retailer"]
     code = event["code"]
@@ -170,6 +180,7 @@ def _handle_stock(event: dict):
         store.log_sync("stock", config.ACCOUNTS[src].name,
                        config.other_account(src).name, code, None, onhand, cost,
                        "LOOP_STOPPED", detail="tan suat cao", notif_id=notif_id, reason="loop")
+        _verify_after_sync(code)   # loop dừng -> nhiều khả năng còn lệch -> kiểm tức thì
         return
 
     # 3) Đồng bộ sang tài khoản còn lại
@@ -197,8 +208,10 @@ def _handle_stock(event: dict):
     # Đánh dấu TRƯỚC khi ghi: lát nữa target sẽ bắn webhook onhand này -> ta lờ đi
     store.mark_expected_echo(target.retailer, code, onhand)
 
+    result = None
     try:
         r = target_client.set_onhand(code, onhand, dry_run=config.DRY_RUN, cost=cost)
+        result = r["result"]
         print(f"[{r['result']}] {src} -> {target.name}: {code} "
               f"{r['old']} -> {r['new']} (cost={cost})")
         if r["result"] == "WRITTEN":
@@ -207,12 +220,18 @@ def _handle_stock(event: dict):
                        r["old"], r["new"], cost, r["result"], notif_id=notif_id,
                        reason="stock")
     except Exception as e:  # noqa
+        result = "ERROR"
         print(f"[ERROR] đồng bộ {code} sang {target.name} lỗi: {e}")
         store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
                        None, onhand, cost, "ERROR", detail=str(e), notif_id=notif_id,
                        reason="stock")
         notify.send(f"⛔ Lỗi ghi tồn '{code}' sang {target.name} (đặt {onhand}): {e}\n"
                     f"Chạy: python reconcile.py --retry-errors  để bù lại.")
+
+    # KIỂM TỨC THÌ: đã đụng ghi (không phải NOOP đã-bằng-nhau) -> hẹn đọc lại sau vài
+    # giây; nếu KV1 != KV2 (ghi hụt / KiotViet tính lại SP đa đơn vị) -> cảnh báo NGAY.
+    if result and result != "NOOP":
+        _verify_after_sync(code)
 
 
 def _handle_product(event: dict):

@@ -24,7 +24,7 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request, Response, HTTPException, Form
 from fastapi.responses import HTMLResponse
 
 import config
@@ -102,11 +102,16 @@ def _startup():
     threading.Thread(target=_heartbeat_loop, daemon=True, name="heartbeat").start()
     if config.WEBHOOK_CHECK_MINUTES > 0:
         threading.Thread(target=_webhook_check_loop, daemon=True, name="webhook-guard").start()
-    if config.CONSISTENCY_CHECK_MINUTES > 0:
+    if config.CONSISTENCY_CHECK_MINUTES > 0 or config.CONSISTENCY_VERIFY_ON_SYNC:
         import consistency
-        threading.Thread(target=consistency.loop, daemon=True, name="consistency").start()
-        print(f"Kiểm nhất quán KV1=KV2 mỗi {config.CONSISTENCY_CHECK_MINUTES} phút "
-              f"(soi {config.CONSISTENCY_LOOKBACK_HOURS:g}h gần nhất).")
+        if config.CONSISTENCY_VERIFY_ON_SYNC:
+            consistency.start_verify_thread()   # kiểm TỨC THÌ sau mỗi lần sync
+            print(f"Kiểm TỨC THÌ sau sync: bật (đọc lại sau {config.CONSISTENCY_VERIFY_DELAY:g}s, "
+                  f"lệch -> cảnh báo ngay).")
+        if config.CONSISTENCY_CHECK_MINUTES > 0:
+            threading.Thread(target=consistency.loop, daemon=True, name="consistency").start()
+            print(f"Kiểm nhất quán định kỳ mỗi {config.CONSISTENCY_CHECK_MINUTES} phút "
+                  f"(soi {config.CONSISTENCY_LOOKBACK_HOURS:g}h gần nhất).")
     if config.ENABLE_SCHEDULER:
         import scheduler
         threading.Thread(target=scheduler.loop, daemon=True, name="scheduler").start()

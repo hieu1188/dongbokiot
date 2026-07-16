@@ -92,6 +92,11 @@ CONSISTENCY_LOOKBACK_HOURS = float(_get("CONSISTENCY_LOOKBACK_HOURS", "3") or 3)
 CONSISTENCY_TOLERANCE = float(_get("CONSISTENCY_TOLERANCE", "0.01") or 0.01)
 # Không báo lại CÙNG một mã trong bao nhiêu phút (chống spam).
 CONSISTENCY_ALERT_COOLDOWN = float(_get("CONSISTENCY_ALERT_COOLDOWN", "120") or 120)
+# KIỂM TỨC THÌ sau MỖI lần sync: ghi xong -> đợi vài giây cho KiotViet lắng -> đọc lại
+# KV1/KV2, còn lệch thì CẢNH BÁO NGAY (không đợi nhịp quét định kỳ). true = bật.
+CONSISTENCY_VERIFY_ON_SYNC = _get("CONSISTENCY_VERIFY_ON_SYNC", "true").lower() != "false"
+# Đợi bao lâu sau khi sync ghi xong rồi mới kiểm tức thì (giây) — đủ để SP đa đơn vị lắng.
+CONSISTENCY_VERIFY_DELAY = float(_get("CONSISTENCY_VERIFY_DELAY", "15") or 15)
 
 # --- Tự kiểm webhook: KiotViet hay tự TẮT webhook khi giao dịch tới server lỗi ---
 # Cứ mỗi WEBHOOK_CHECK_MINUTES phút, kiểm isActive; nếu bị tắt -> tự bật lại + báo.
