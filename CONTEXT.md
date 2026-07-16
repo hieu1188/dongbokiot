@@ -56,8 +56,16 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
 - **Giá vốn**: lấy `Cost` ngay trong webhook `stock.update` → set sang KV2, tránh giá vốn ảo.
 - **Tự tạo sản phẩm mới sang KV2** qua webhook `product.update` (AUTO_CREATE_PRODUCT).
   ⚠️ Hạn chế: KHÔNG copy nhóm hàng (mỗi tài khoản có categoryId riêng) → gán tay ở KV2.
-- **Sổ cái `sync_log` + trang `/audit`**: cách ghi thẳng không để lại phiếu trong
-  KiotViet, nên ta tự lưu nhật ký mọi lần sửa tồn để tra soát. Cột `reason`
+- **Sổ cái `sync_log` + trang `/audit`**: ⚠ ĐÍNH CHÍNH (2026-07-15, quan sát trên UI
+  KiotViet): mỗi lần ghi `PUT /products` đổi onHand, KiotViet **TỰ SINH 1 "phiếu cân bằng
+  kho"** (ghi chú "tạo tự động khi cập nhật Hàng hóa: <mã>", trạng thái Đã cân bằng kho).
+  Đây là endpoint ghi tồn DUY NHẤT của Public API → KHÔNG có cách ghi tồn "im lặng"; mọi
+  sync/`/fix` đều để lại phiếu này. Phiếu cân bằng kho KHÔNG ảnh hưởng giá vốn/công nợ (chỉ
+  là bản ghi điều chỉnh), nên vô hại — nhưng nhiều giao dịch = nhiều phiếu (SP đa đơn vị tạo
+  2 phiếu/giao dịch: mã gốc + mã quy đổi). Đã giảm bằng NOOP (bằng nhau không ghi) + debounce
+  (gộp cục). QUYẾT ĐỊNH: KHÔNG thêm ngưỡng bỏ-qua-số-lẻ — chủ shop bán đơn vị NHỎ nên lệch dù
+  0.x vẫn PHẢI ghi đúng. Ta vẫn tự lưu nhật ký `sync_log` (chi tiết + tra cứu nhanh hơn UI).
+  Cột `reason`
   (stock/product/reconcile/retry). Trang /audit có bảng tổng sức khỏe (heartbeat,
   DRY_RUN, ghi/lỗi 24h, snapshot cuối), lọc theo result/kind/hours/code, xuất CSV,
   banner mã lỗi treo. Lỗi ghi tồn → cảnh báo Telegram realtime (notify.py).
