@@ -112,6 +112,11 @@ def _startup():
             threading.Thread(target=consistency.loop, daemon=True, name="consistency").start()
             print(f"Kiểm nhất quán định kỳ mỗi {config.CONSISTENCY_CHECK_MINUTES} phút "
                   f"(soi {config.CONSISTENCY_LOOKBACK_HOURS:g}h gần nhất).")
+    if config.FULL_CHECK_HOURS > 0:
+        import consistency
+        threading.Thread(target=consistency.full_loop, daemon=True, name="full-scan").start()
+        print(f"Quét TOÀN KHO 2 tài khoản mỗi {config.FULL_CHECK_HOURS:g}h "
+              f"(báo cáo mã lệch + trang /drift).")
     if config.ENABLE_SCHEDULER:
         import scheduler
         threading.Thread(target=scheduler.loop, daemon=True, name="scheduler").start()
@@ -374,6 +379,88 @@ def fix(secret: str, code: str = "", value: str = "", apply: str = ""):
     {result_html}
     <p style="margin-top:18px"><a href="/audit/{esc(secret)}">← Về Sổ cái</a></p>
     </body></html>""")
+
+
+@app.get("/drift/{secret}", response_class=HTMLResponse)
+def drift(secret: str, scan: str = "", fmt: str = "html"):
+    """Báo cáo LỆCH TỒN toàn kho (KV1 vs KV2) từ lần quét gần nhất.
+    ?scan=1 -> quét MỚI ngay (chậm ~1 phút). ?fmt=csv -> tải CSV."""
+    if secret != config.WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    import consistency
+
+    r = consistency.full_scan() if scan else consistency.get_last_scan()
+
+    if fmt == "csv" and r:
+        lines = ["Ma hang,Ton KV1,Ton KV2,Chenh lech,Huong"]
+        for code, a, b in r["lech"]:
+            diff = abs(float(a) - float(b))
+            huong = "KV1>KV2" if a > b else "KV2>KV1"
+            lines.append(",".join(_csv_cell(v) for v in [code, a, b, _g(diff), huong]))
+        return Response("\n".join(lines), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": "attachment; filename=drift.csv"})
+
+    def esc(x):
+        return (str(x) if x is not None else "").replace("&", "&amp;").replace("<", "&lt;")
+    base = f"/drift/{esc(secret)}"
+
+    if not r:
+        body = ('<p style="color:#888">Chưa có lần quét nào. '
+                f'<a href="{base}?scan=1">Quét ngay</a> (mất ~1 phút).</p>')
+        return HTMLResponse(_drift_page(base, body, esc(secret)))
+
+    when = _epoch_to_vn(r["ts"]).strftime("%H:%M:%S %d/%m") if r.get("ts") else "—"
+    lech = r["lech"]
+    chip = lambda lb, v, col: (f'<span style="display:inline-block;margin:2px 8px 2px 0;'
+                               f'padding:3px 9px;border-radius:6px;background:{col};color:#fff;'
+                               f'font-size:13px">{lb}: <b>{v}</b></span>')
+    dash = ('<div style="margin:10px 0 14px">'
+            + chip("Quét lúc", when, "#444")
+            + chip("Mã lệch", len(lech), "#c0271c" if lech else "#0a7d28")
+            + chip("Chỉ KV1", r.get("only1_count", 0), "#8a6d00")
+            + chip("Chỉ KV2", r.get("only2_count", 0), "#8a6d00")
+            + chip("Tổng KV1/KV2", f'{r.get("kv1_total","?")}/{r.get("kv2_total","?")}', "#444")
+            + '</div>')
+    rows = []
+    for code, a, b in lech:
+        diff = abs(float(a) - float(b))
+        huong = "KV1&gt;KV2" if a > b else "KV2&gt;KV1"
+        fixurl = f"/fix/{esc(secret)}?code={_url_q(code)}"
+        rows.append(f"<tr><td><b>{esc(code)}</b></td>"
+                    f'<td style="text-align:right">{_g(a)}</td>'
+                    f'<td style="text-align:right">{_g(b)}</td>'
+                    f'<td style="text-align:right;color:#c0271c">{_g(diff)}</td>'
+                    f"<td>{huong}</td>"
+                    f'<td><a href="{fixurl}">Sửa →</a></td></tr>')
+    table = ('<table><thead><tr><th>Mã hàng</th><th>KV1</th><th>KV2</th>'
+             '<th>Lệch</th><th>Hướng</th><th></th></tr></thead><tbody>'
+             + ("".join(rows) or '<tr><td colspan="6" style="text-align:center;'
+                'color:#0a7d28">✔ Không mã nào lệch</td></tr>') + "</tbody></table>")
+    actions = (f'<div style="margin:10px 0"><a href="{base}?scan=1">🔄 Quét lại ngay</a> '
+               f'&nbsp;·&nbsp; <a href="{base}?fmt=csv">⬇ Tải CSV</a> '
+               f'&nbsp;·&nbsp; <a href="/audit/{esc(secret)}">Sổ cái</a></div>')
+    return HTMLResponse(_drift_page(base, dash + actions + table, esc(secret)))
+
+
+def _drift_page(base, body, secret):
+    return (f"""<!doctype html><html lang="vi"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Báo cáo lệch tồn KV1/KV2</title>
+    <style>
+      body{{font-family:system-ui,Segoe UI,Arial;margin:24px;color:#222}}
+      h2{{margin:0 0 4px}} a{{color:#1257c2;text-decoration:none}} a:hover{{text-decoration:underline}}
+      table{{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}}
+      th,td{{border:1px solid #e3e3e3;padding:6px 9px;white-space:nowrap}}
+      th{{background:#f6f6f6;text-align:left;position:sticky;top:0}}
+    </style></head><body>
+    <h2>📊 Báo cáo lệch tồn KV1 ↔ KV2 (quét toàn kho)</h2>
+    {body}
+    </body></html>""")
+
+
+def _url_q(s):
+    import urllib.parse
+    return urllib.parse.quote(s)
 
 
 def _qs(code, result, kind, source, hours):

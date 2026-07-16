@@ -98,6 +98,14 @@ CONSISTENCY_VERIFY_ON_SYNC = _get("CONSISTENCY_VERIFY_ON_SYNC", "true").lower() 
 # Đợi bao lâu sau khi sync ghi xong rồi mới kiểm tức thì (giây) — đủ để SP đa đơn vị lắng.
 CONSISTENCY_VERIFY_DELAY = float(_get("CONSISTENCY_VERIFY_DELAY", "15") or 15)
 
+# --- QUÉT TOÀN KHO định kỳ (so TẤT CẢ mã 2 KV, không chỉ mã vừa hoạt động) ---
+# Mỗi FULL_CHECK_HOURS giờ, quét toàn bộ tồn KV1 + KV2, so sánh mọi mã, báo cáo chi tiết
+# mã lệch qua Telegram + lưu để xem ở trang /drift. Bắt cả drift KHÔNG qua webhook (sửa
+# tay trên KiotViet, mã chưa từng sync...). 0 = tắt.
+FULL_CHECK_HOURS = float(_get("FULL_CHECK_HOURS", "2") or 2)
+# Số mã lệch tối đa liệt kê trong tin Telegram (còn lại xem ở trang /drift).
+FULL_REPORT_MAX = int(_get("FULL_REPORT_MAX", "25") or 25)
+
 # --- Tự kiểm webhook: KiotViet hay tự TẮT webhook khi giao dịch tới server lỗi ---
 # Cứ mỗi WEBHOOK_CHECK_MINUTES phút, kiểm isActive; nếu bị tắt -> tự bật lại + báo.
 # 0 = tắt việc tự kiểm.

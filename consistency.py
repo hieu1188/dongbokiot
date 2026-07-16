@@ -139,3 +139,76 @@ def loop():
 def start_verify_thread():
     """Khởi động thread KIỂM TỨC THÌ (server gọi lúc startup)."""
     threading.Thread(target=_verify_loop, daemon=True, name="verify-on-sync").start()
+
+
+# ---------------- CHẾ ĐỘ 3: QUÉT TOÀN KHO định kỳ ----------------
+import json
+
+
+def full_scan():
+    """Quét TẤT CẢ hàng hóa 2 tài khoản, so tồn từng mã. Lưu kết quả vào meta + trả về.
+    Kết quả: {ts, lech:[[code,kv1,kv2]], only1_count, only2_count, kv1_total, kv2_total}."""
+    c1 = fixtool._cl(config.KV1.retailer)
+    c2 = fixtool._cl(config.KV2.retailer)
+    m1 = c1.onhand_map()
+    m2 = c2.onhand_map()
+    lech = []
+    only1 = only2 = 0
+    for code in (set(m1) | set(m2)):
+        a = m1.get(code); b = m2.get(code)
+        if a is None:
+            only2 += 1; continue
+        if b is None:
+            only1 += 1; continue
+        if abs(float(a) - float(b)) > config.CONSISTENCY_TOLERANCE:
+            lech.append([code, a, b])
+    lech.sort(key=lambda x: -abs(float(x[1]) - float(x[2])))
+    result = {"ts": time.time(), "lech": lech, "only1_count": only1,
+              "only2_count": only2, "kv1_total": len(m1), "kv2_total": len(m2)}
+    store.set_meta("last_drift_scan", json.dumps(result, ensure_ascii=False))
+    return result
+
+
+def get_last_scan():
+    raw = store.get_meta("last_drift_scan")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:  # noqa
+        return None
+
+
+def full_report_and_alert():
+    """Quét toàn kho + gửi báo cáo Telegram nếu có mã lệch."""
+    r = full_scan()
+    lech = r["lech"]
+    if not lech:
+        print(f"[FULL-SCAN] OK, không mã nào lệch ({r['kv1_total']}/{r['kv2_total']} mã).",
+              flush=True)
+        return r
+    d = lambda a, b: abs(float(a) - float(b))
+    lines = [f"📊 QUÉT TOÀN KHO ({config.FULL_CHECK_HOURS:g}h): {len(lech)} MÃ LỆCH KV1≠KV2"]
+    for code, a, b in lech[:config.FULL_REPORT_MAX]:
+        lines.append(f"• {code}: KV1={a} / KV2={b} (lệch {d(a, b):g})")
+    if len(lech) > config.FULL_REPORT_MAX:
+        lines.append(f"…và {len(lech) - config.FULL_REPORT_MAX} mã nữa.")
+    if r["only1_count"] or r["only2_count"]:
+        lines.append(f"(+{r['only1_count']} mã chỉ có KV1, {r['only2_count']} chỉ có KV2)")
+    if config.PUBLIC_URL and config.WEBHOOK_SECRET:
+        lines.append(f"📋 Chi tiết đầy đủ: {config.PUBLIC_URL}/drift/{config.WEBHOOK_SECRET}")
+        lines.append(f"🔧 Sửa nhanh: {config.PUBLIC_URL}/fix/{config.WEBHOOK_SECRET}")
+    notify.send("\n".join(lines))
+    return r
+
+
+def full_loop():
+    """Vòng lặp QUÉT TOÀN KHO (server chạy trong 1 thread)."""
+    interval = config.FULL_CHECK_HOURS * 3600
+    time.sleep(min(interval, 120))   # quét lần đầu sớm (2') để có dữ liệu cho trang /drift
+    while True:
+        try:
+            full_report_and_alert()
+        except Exception as e:  # noqa
+            print(f"[FULL-SCAN] lỗi: {e}", flush=True)
+        time.sleep(interval)

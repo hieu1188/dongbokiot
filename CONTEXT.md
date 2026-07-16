@@ -74,6 +74,14 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
   mã đó sau `CONSISTENCY_VERIFY_DELAY` giây (đợi KiotViet lắng); nếu KV1 ≠ KV2 (ghi hụt /
   KiotViet tính lại SP đa đơn vị / loop để lệch) → CẢNH BÁO NGAY, không đợi nhịp quét 15'.
   Dùng chung cooldown với quét định kỳ. Bật/tắt `CONSISTENCY_VERIFY_ON_SYNC`.
+- **QUÉT TOÀN KHO định kỳ (`consistency.full_scan/full_loop`, trang `/drift`)**: mỗi
+  `FULL_CHECK_HOURS` giờ (mặc định 2) quét `onhand_map` CẢ 2 tài khoản, so TẤT CẢ mã (không
+  chỉ mã vừa hoạt động như 2 chế độ kia) → bắt cả drift KHÔNG qua webhook (sửa tay trên
+  KiotViet, mã chưa từng sync, lệch cũ tồn đọng). Có mã lệch → báo cáo Telegram (top
+  `FULL_REPORT_MAX` mã + link). Kết quả lưu `store.meta.last_drift_scan`; xem đầy đủ ở
+  `/drift/<secret>` (bảng chi tiết + nút Quét lại + tải CSV + link /fix từng mã). Quét ~50s
+  (≈4000 mã/tài khoản). ⚠ đây là LƯỚI RỘNG NHẤT; 3 chế độ bổ trợ: tức-thì (sau sync) →
+  định-kỳ-mã-hoạt-động (15') → toàn-kho (2h).
   Phục hồi: `reconcile.py --retry-errors` chạy lại các mã ERROR còn treo (đặt cả 2 = KV1).
 - **LOOP SP đa đơn vị/biến thể + CÔNG CỤ SỬA NHANH (`fixtool.py`, `/fix`)**: vài SP đa
   đơn vị (mã quy đổi conversionValue≠1) / biến thể khi ghi onHand bị KiotViet TÍNH LẠI →
