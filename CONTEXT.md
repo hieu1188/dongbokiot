@@ -74,6 +74,14 @@ nhưng thuộc cùng một hệ thống 2-tài-khoản. Đều **không sửa** 
   mã đó sau `CONSISTENCY_VERIFY_DELAY` giây (đợi KiotViet lắng); nếu KV1 ≠ KV2 (ghi hụt /
   KiotViet tính lại SP đa đơn vị / loop để lệch) → CẢNH BÁO NGAY, không đợi nhịp quét 15'.
   Dùng chung cooldown với quét định kỳ. Bật/tắt `CONSISTENCY_VERIFY_ON_SYNC`.
+- **XÁC MINH SỰ THẬT khi phát hiện LOOP (`_verify_documents`)**: mô hình sync vốn TIN
+  webhook (không kiểm nguồn gốc thay đổi). ⚠ Không thể chặn-ghi-cứng theo chứng từ ở MỌI
+  webhook vì thay đổi hợp lệ có thể KHÔNG có chứng từ dương (hủy đơn khôi phục tồn) → chặn
+  nhầm. Nên xác minh ở ĐIỂM TIN CẬY: khi `_is_looping` phát hiện DAO ĐỘNG (đã dừng ghi
+  phantom = an toàn), đối chiếu chứng từ thật (`imports_for_code` phiếu nhập + `invoices_for_code`
+  bán, 4h, cả 2 KV): KHÔNG chứng từ → "LOOP PHANTOM (KiotViet tính lại), sửa tay"; CÓ chứng
+  từ → "có thể giao dịch thật dồn dập, kiểm kỹ". Cảnh báo kèm verdict + link thẻ kho. Bộ theo
+  dõi 30' (monitor.py) cũng dùng cùng nguyên tắc: mã dao động mà CÓ phiếu nhập → bỏ qua.
 - **QUÉT TOÀN KHO định kỳ (`consistency.full_scan/full_loop`, trang `/drift`)**: mỗi
   `FULL_CHECK_HOURS` giờ (mặc định 2) quét `onhand_map` CẢ 2 tài khoản, so TẤT CẢ mã (không
   chỉ mã vừa hoạt động như 2 chế độ kia) → bắt cả drift KHÔNG qua webhook (sửa tay trên

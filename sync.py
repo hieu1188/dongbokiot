@@ -162,6 +162,26 @@ def _handle(event: dict):
         _handle_stock(event)
 
 
+def _verify_documents(code, hours=4):
+    """XÁC MINH SỰ THẬT: đối chiếu chứng từ (nhập/bán) của 'code' trong N giờ ở CẢ 2 KV.
+    Trả {'import','sale'}. Dùng để phân biệt LOOP PHANTOM (không chứng từ) vs hoạt động
+    thật nhanh (có bán/nhập)."""
+    frm = time.time() - hours * 3600
+    out = {"import": 0.0, "sale": 0.0}
+    for cl in _clients.values():
+        try:
+            out["import"] += cl.imports_for_code(code, frm, time.time())
+        except Exception:  # noqa
+            pass
+        try:
+            ivs = cl.invoices_for_code(code, frm, time.time())
+            out["sale"] += sum(float(x["qty"]) for x in ivs
+                               if "hủy" not in (x["status"] or "").lower())
+        except Exception:  # noqa
+            pass
+    return out
+
+
 def _read_source_onhand(client, code):
     """Đọc LẠI tồn thật của 'code' tại kho dùng chung của tài khoản NGUỒN (giữ số lẻ).
     Dùng để bỏ giá trị webhook có thể đã CŨ (do trễ/dồn cục)."""
@@ -221,20 +241,27 @@ def _handle_stock(event: dict):
         now = time.time()
         if now - _loop_alerted.get(code, 0) > 3600:
             _loop_alerted[code] = now
-            # Kèm ĐỈNH dao động (giá trị onHand CAO NHẤT gần đây = tồn gốc trước bán):
-            # thường CHÍNH LÀ số đúng cần khôi phục -> chủ shop khỏi phải tra sổ cái.
+            # Kèm ĐỈNH dao động (giá trị onHand CAO NHẤT gần đây = tồn gốc trước bán).
             vals = [v for _, v in _write_hist.get(code, [])] + [onhand]
             lo, hi = (min(vals), max(vals)) if vals else (None, None)
+            # XÁC MINH SỰ THẬT: đối chiếu chứng từ để kết luận loop phantom hay thật.
+            docs = _verify_documents(code)
+            has_doc = docs["import"] > 0 or docs["sale"] > 0
+            if has_doc:
+                verdict = (f"⚠ CÓ chứng từ (nhập {docs['import']:g}, bán {docs['sale']:g}) "
+                           f"— có thể do giao dịch thật dồn dập, KIỂM kỹ trước khi sửa")
+            else:
+                verdict = ("❗ KHÔNG có chứng từ nào (nhập/bán) — LOOP PHANTOM do KiotViet "
+                           "tính lại, cần sửa tay")
             link = ""
             if config.PUBLIC_URL and config.WEBHOOK_SECRET:
                 import urllib.parse
                 q = urllib.parse.quote(code)
-                link = (f"\n🔧 Sửa nhanh (xem + ghi 2 KV): "
-                        f"{config.PUBLIC_URL}/fix/{config.WEBHOOK_SECRET}?code={q}")
-            notify.send(f"🔁 Mã '{code}' bị LẶP đồng bộ (KV1/KV2 nhảy qua lại, thường do "
-                        f"SP cha biến thể / đa đơn vị khác nhau giữa 2 tài khoản). ĐÃ DỪNG "
-                        f"tự sync mã này.\n"
-                        f"Dao động {lo:g} ↔ {hi:g} — số ĐÚNG thường = {hi:g} (tồn gốc trước bán)."
+                link = (f"\n📇 Thẻ kho: {config.PUBLIC_URL}/card/{config.WEBHOOK_SECRET}?code={q}&invoices=1"
+                        f"\n🔧 Sửa: {config.PUBLIC_URL}/fix/{config.WEBHOOK_SECRET}?code={q}")
+            notify.send(f"🔁 Mã '{code}' LẶP đồng bộ, DAO ĐỘNG {lo:g} ↔ {hi:g} — ĐÃ DỪNG sync.\n"
+                        f"Xác minh sự thật: {verdict}.\n"
+                        f"Số đúng thường = {hi:g} (nếu là loop phantom)."
                         f"{link}")
         store.log_sync("stock", config.ACCOUNTS[src].name,
                        config.other_account(src).name, code, None, onhand, cost,
