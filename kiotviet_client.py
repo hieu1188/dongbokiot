@@ -306,6 +306,40 @@ class KiotVietClient:
             time.sleep(0.2)
         return out
 
+    def imports_for_code(self, code: str, from_ts: float, to_ts: float) -> float:
+        """Tổng SỐ LƯỢNG NHẬP (phiếu nhập /purchaseorders) của 'code' trong khoảng.
+        Dùng để XÁC MINH: nếu tồn TĂNG do nhập hàng thật -> KHÔNG phải loop."""
+        d_from = _epoch_to_vn(from_ts).date() - _timedelta(days=1)
+        d_to = _epoch_to_vn(to_ts).date() + _timedelta(days=1)
+        tot, current, page, seen = 0.0, 0, 100, set()
+        while True:
+            url = (f"{BASE_URL}/purchaseorders?fromPurchaseDate={d_from.isoformat()}"
+                   f"&toPurchaseDate={d_to.isoformat()}&pageSize={page}&currentItem={current}")
+            r = requests.get(url, headers=self._headers(), timeout=30, verify=VERIFY_TLS)
+            if r.status_code == 429:
+                time.sleep(3); continue
+            if r.status_code != 200:
+                break
+            data = r.json().get("data", [])
+            if not data:
+                break
+            ids = {d.get("code") for d in data}
+            if ids and ids.issubset(seen):
+                break
+            seen.update(ids)
+            for po in data:
+                pts = _parse_vn_ts(po.get("purchaseDate"))
+                if pts is None or pts < from_ts or pts > to_ts:
+                    continue
+                for it in (po.get("purchaseOrderDetails") or po.get("orderDetails") or []):
+                    if it.get("productCode") == code and it.get("quantity"):
+                        tot += float(it["quantity"])
+            if len(data) < page:
+                break
+            current += len(data)
+            time.sleep(0.2)
+        return tot
+
     # ---------------- GHI TỒN ----------------
     def set_onhand(self, code: str, target_onhand, dry_run: bool, cost=None) -> dict:
         """
