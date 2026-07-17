@@ -75,6 +75,14 @@ RESYNC_READ_SOURCE = _get("RESYNC_READ_SOURCE", "true").lower() != "false"
 MULTIUNIT_COLLAPSE = _get("MULTIUNIT_COLLAPSE", "true").lower() != "false"
 MULTIUNIT_COLLAPSE_WINDOW = float(_get("MULTIUNIT_COLLAPSE_WINDOW", "25") or 25)
 
+# --- CẢNH BÁO SỚM: 1 mã đồng bộ liên tục quá nhiều lần trong thời gian ngắn ---
+# Nghi ĐỒNG BỘ NGƯỢC / loop chớm: nếu 1 mã bị GHI (WRITTEN) quá RAPID_SYNC_MAX lần
+# trong RAPID_SYNC_WINDOW giây -> cảnh báo NGAY (không dừng sync, chỉ báo để kiểm sớm).
+# Nhanh hơn cơ chế _is_looping (20') vốn chỉ báo khi đã lặp nặng.
+RAPID_SYNC_WINDOW = float(_get("RAPID_SYNC_WINDOW", "180") or 180)   # 3 phút
+RAPID_SYNC_MAX = int(_get("RAPID_SYNC_MAX", "2") or 2)               # >2 lần -> báo
+RAPID_SYNC_COOLDOWN = float(_get("RAPID_SYNC_COOLDOWN", "30") or 30) # phút, chống spam
+
 # --- Cảnh báo (Telegram). Để trống -> chỉ in log, không gửi. ---
 TELEGRAM_BOT_TOKEN = _get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = _get("TELEGRAM_CHAT_ID")

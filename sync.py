@@ -38,6 +38,30 @@ def _is_looping(code, value) -> bool:
 def _record_write(code, value):
     _write_hist.setdefault(code, []).append((time.time(), value))
 
+
+_rapid_alerted = {}   # code -> ts lần cảnh báo SỚM cuối (chống spam)
+
+
+def _check_rapid_sync(code):
+    """Cảnh báo SỚM: nếu 'code' bị GHI quá RAPID_SYNC_MAX lần trong RAPID_SYNC_WINDOW
+    giây -> nghi đồng bộ ngược/loop chớm -> báo NGAY (KHÔNG dừng sync)."""
+    now = time.time()
+    cnt = sum(1 for t, _ in _write_hist.get(code, []) if now - t <= config.RAPID_SYNC_WINDOW)
+    if cnt <= config.RAPID_SYNC_MAX:
+        return
+    if now - _rapid_alerted.get(code, 0) <= config.RAPID_SYNC_COOLDOWN * 60:
+        return
+    _rapid_alerted[code] = now
+    link = ""
+    if config.PUBLIC_URL and config.WEBHOOK_SECRET:
+        import urllib.parse
+        q = urllib.parse.quote(code)
+        link = (f"\n📇 Thẻ kho: {config.PUBLIC_URL}/card/{config.WEBHOOK_SECRET}?code={q}"
+                f"\n🔧 Sửa: {config.PUBLIC_URL}/fix/{config.WEBHOOK_SECRET}?code={q}")
+    notify.send(f"⚡ Mã '{code}' ĐỒNG BỘ LIÊN TỤC {cnt} lần trong "
+                f"~{config.RAPID_SYNC_WINDOW/60:g} phút — NGHI đồng bộ ngược/loop. "
+                f"Kiểm sớm kẻo tồn sai.{link}")
+
 # Mỗi tài khoản 1 client (tái dùng token)
 _clients = {
     config.KV1.retailer: KiotVietClient(config.KV1),
@@ -251,6 +275,7 @@ def _handle_stock(event: dict):
               f"{r['old']} -> {r['new']} (cost={cost})")
         if r["result"] == "WRITTEN":
             _record_write(code, onhand)   # ghi lại giá trị để phát hiện dao động
+            _check_rapid_sync(code)       # cảnh báo SỚM nếu ghi liên tục nhiều lần
         store.log_sync("stock", config.ACCOUNTS[src].name, target.name, code,
                        r["old"], r["new"], cost, r["result"], notif_id=notif_id,
                        reason="stock")

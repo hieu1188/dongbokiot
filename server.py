@@ -238,7 +238,7 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
              f'<a href="{base}?source={config.KV1.name}">Từ {config.KV1.name}</a> · '
              f'<a href="{base}?source={config.KV2.name}">Từ {config.KV2.name}</a> · '
              f'<a href="{base}?kind=reconcile">Reconcile</a> · '
-             f'<a href="{base}?{_qs(code,result,kind,source,hours)}&fmt=csv">⬇ Xuất CSV</a></div>')
+             f'<a href="{base}?{_qs(code,result,kind,source,hours,frm,to)}&fmt=csv">⬇ Xuất CSV</a></div>')
 
     rows = []
     for r in logs:
@@ -287,9 +287,12 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
         <option value="">— nguồn —</option>
         {''.join(f'<option value="{s}"{" selected" if source==s else ""}>{s}</option>' for s in [config.KV1.name, config.KV2.name, "RECON", "RETRY"])}
       </select>
-      <input name="hours" type="number" placeholder="giờ" value="{hours or ''}" style="width:80px">
+      <input name="hours" type="number" placeholder="giờ" value="{hours or ''}" style="width:70px">
+      <label style="font-size:13px;color:#555">Từ <input name="frm" type="date" value="{esc(frm)}"></label>
+      <label style="font-size:13px;color:#555">đến <input name="to" type="date" value="{esc(to)}"></label>
       <button type="submit">Lọc</button>
     </form>
+    <div style="font-size:12px;color:#888;margin:-4px 0 10px">Mẹo: chọn "Từ…đến…" để tra soát 1 khoảng ngày (vd tìm đồng bộ ngược 14/07).</div>
     <table><thead><tr>
       <th>Thời gian (VN)</th><th>Loại</th><th>Lý do</th><th>Nguồn → Đích</th><th>Mã hàng</th>
       <th>Tồn (cũ → mới)</th><th>Giá vốn</th><th>Kết quả</th><th>Chi tiết</th>
@@ -579,7 +582,7 @@ def card(secret: str, code: str = "", days: str = "3", invoices: str = ""):
     </body></html>""")
 
 
-def _qs(code, result, kind, source, hours):
+def _qs(code, result, kind, source, hours, frm="", to=""):
     """Dựng lại query-string hiện tại (để nút Xuất CSV giữ nguyên bộ lọc)."""
     parts = []
     if code: parts.append(f"code={code}")
@@ -587,6 +590,8 @@ def _qs(code, result, kind, source, hours):
     if kind: parts.append(f"kind={kind}")
     if source: parts.append(f"source={source}")
     if hours: parts.append(f"hours={hours}")
+    if frm: parts.append(f"frm={frm}")
+    if to: parts.append(f"to={to}")
     return "&".join(parts)
 
 
