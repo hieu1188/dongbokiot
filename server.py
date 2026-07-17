@@ -168,8 +168,13 @@ def audit(secret: str, code: str = "", result: str = "", kind: str = "",
     limit = _int(limit, 300)
 
     # Khoảng NGÀY (giờ VN) — ưu tiên hơn 'hours'; nâng trần để lấy trọn 1 khoảng.
-    from_ts = _parse_vn_ts(frm.strip()) if frm.strip() else None
-    to_ts = _parse_vn_ts(to.strip()) if to.strip() else None
+    frm, to = frm.strip(), to.strip()
+    from_ts = _parse_vn_ts(frm) if frm else None
+    to_ts = _parse_vn_ts(to) if to else None
+    # 'đến ngày X' (dạng YYYY-MM-DD, không có giờ) = HẾT ngày X -> cộng 1 ngày cho trọn.
+    # (nếu không, "từ 14 đến 14" = [00:00,00:00] = rỗng -> không có dữ liệu)
+    if to_ts is not None and len(to) <= 10:
+        to_ts += 86400
     cap = 8000 if (from_ts or to_ts) else 2000
     if from_ts is None and hours:
         from_ts = time.time() - hours * 3600
