@@ -355,13 +355,28 @@ def _handle_product(event: dict):
                        "DRY_RUN", detail=event.get("name") or "")
         return
 
+    # Lấy đầy đủ SP NGUỒN (để có TÊN NHÓM + tên/đvt/giá chuẩn). KiotViet bắt buộc có
+    # nhóm hàng hợp lệ khi tạo -> map nhóm theo TÊN sang tài khoản đích (ensure_category).
+    name = event.get("name")
+    unit = event.get("unit")
+    base_price = event.get("base_price")
+    category_name = None
     try:
-        tc.create_product(code=code, name=event.get("name"), unit=event.get("unit"),
-                          base_price=event.get("base_price"),
-                          onhand=onhand, cost=cost)
-        print(f"[PRODUCT] ✔ tạo '{code}' sang {target.name}")
+        sp = _clients[src].get_product_by_code(code)
+        if sp:
+            name = sp.get("fullName") or sp.get("name") or name
+            unit = sp.get("unit") or unit
+            base_price = sp.get("basePrice") if sp.get("basePrice") is not None else base_price
+            category_name = sp.get("categoryName")
+    except Exception:  # noqa
+        pass
+
+    try:
+        tc.create_product(code=code, name=name, unit=unit, base_price=base_price,
+                          onhand=onhand, cost=cost, category_name=category_name)
+        print(f"[PRODUCT] ✔ tạo '{code}' sang {target.name} (nhóm '{category_name}')")
         store.log_sync("product", src_name, target.name, code, None, onhand, cost,
-                       "CREATED", detail=event.get("name") or "", reason="product")
+                       "CREATED", detail=f"{name or ''} | nhóm {category_name or '?'}", reason="product")
     except Exception as e:  # noqa
         print(f"[ERROR] tạo sản phẩm {code} sang {target.name} lỗi: {e}")
         store.log_sync("product", src_name, target.name, code, None, onhand, cost,

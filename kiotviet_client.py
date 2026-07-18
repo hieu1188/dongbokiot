@@ -436,16 +436,72 @@ class KiotVietClient:
         r.raise_for_status()
         return True
 
+    # ---------------- NHÓM HÀNG (map theo TÊN giữa 2 tài khoản) ----------------
+    def _category_map(self) -> dict:
+        """Cache {tên nhóm (thường hoá) -> categoryId} của tài khoản này, KỂ CẢ nhóm con.
+        Vì mỗi tài khoản có bộ Id nhóm RIÊNG nên map theo TÊN để tạo SP đúng nhóm."""
+        if getattr(self, "_cat_cache", None) is not None:
+            return self._cat_cache
+        out, current = {}, 0
+
+        def walk(c):
+            n = (c.get("categoryName") or "").strip().lower()
+            if n and n not in out:
+                out[n] = c.get("categoryId")
+            for ch in (c.get("children") or []):
+                walk(ch)
+
+        while True:
+            url = (f"{BASE_URL}/categories?pageSize=100&currentItem={current}"
+                   f"&hierarchicalData=true")
+            r = requests.get(url, headers=self._headers(), timeout=20, verify=VERIFY_TLS)
+            if r.status_code != 200:
+                break
+            data = r.json().get("data", [])
+            if not data:
+                break
+            for c in data:
+                walk(c)
+            if len(data) < 100:
+                break
+            current += len(data)
+        self._cat_cache = out
+        return out
+
+    def ensure_category(self, name):
+        """Trả categoryId của nhóm 'name' ở tài khoản NÀY; chưa có -> TẠO mới.
+        None nếu không map/tạo được (bên gọi cần cảnh báo)."""
+        if not name:
+            return None
+        key = name.strip().lower()
+        cid = self._category_map().get(key)
+        if cid:
+            return cid
+        # Chưa có -> thử tạo nhóm mới ở tài khoản này.
+        try:
+            r = requests.post(f"{BASE_URL}/categories", headers=self._headers(),
+                              json={"categoryName": name.strip()}, timeout=20, verify=VERIFY_TLS)
+            if r.status_code == 200:
+                j = r.json()
+                cid = j.get("categoryId") or j.get("id") or (j.get("data") or {}).get("categoryId")
+                if cid:
+                    self._cat_cache[key] = cid
+                return cid
+        except Exception:  # noqa
+            pass
+        # Tạo báo "đã tồn tại" nhưng map không thấy -> refetch 1 lần.
+        self._cat_cache = None
+        return self._category_map().get(key)
+
     # ---------------- TẠO SẢN PHẨM ----------------
     def create_product(self, code, name, unit=None, base_price=None,
-                       onhand=0, cost=None, allows_sale=True) -> dict:
+                       onhand=0, cost=None, allows_sale=True, category_name=None) -> dict:
         """
         Tạo mới hàng hóa (tài liệu 2.4.3: POST /products).
         Dùng khi mirror phát hiện mã hàng chưa tồn tại ở tài khoản đích.
 
-        LƯU Ý: KHÔNG copy categoryId từ tài khoản nguồn — vì mỗi tài khoản có
-        bộ Id nhóm hàng RIÊNG, copy sang sẽ sai nhóm. Sản phẩm tạo ra sẽ chưa có
-        nhóm hàng; bạn gán nhóm thủ công ở KV đích (hoặc thiết lập mapping sau).
+        NHÓM HÀNG: KiotViet BẮT BUỘC có nhóm hợp lệ (thiếu -> 420). Vì mỗi tài khoản
+        có Id nhóm RIÊNG nên MAP theo TÊN (ensure_category); chưa có thì tự tạo nhóm.
         """
         inv = {"branchId": self.acc.branch_id, "onHand": onhand}
         if cost is not None:
@@ -456,6 +512,12 @@ class KiotVietClient:
             body["unit"] = unit
         if base_price is not None:
             body["basePrice"] = base_price
+        cid = self.ensure_category(category_name)
+        if cid:
+            body["categoryId"] = cid
+        elif category_name:
+            raise RuntimeError(f"không map/tạo được nhóm hàng '{category_name}' ở "
+                               f"{self.acc.name} -> tạo nhóm này ở {self.acc.name} rồi thử lại")
         r = _req_with_retry("POST", f"{BASE_URL}/products", json=body,
                             headers=self._headers(), timeout=25)
         r.raise_for_status()
