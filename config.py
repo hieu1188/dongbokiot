@@ -127,7 +127,8 @@ FULL_REPORT_MAX = int(_get("FULL_REPORT_MAX", "25") or 25)
 # Mỗi ngày lúc AUTO_RECONCILE_AT (giờ VN "HH:MM"), quét toàn kho + XÁC MINH bằng chứng từ
 # (nhập/trả -> lấy cao; mất đơn bán -> lấy MIN chống oversell) rồi tự bù. true = bật.
 AUTO_RECONCILE = _get("AUTO_RECONCILE", "true").lower() != "false"
-AUTO_RECONCILE_AT = _get("AUTO_RECONCILE_AT", "02:00")
+# Chạy mỗi N giờ (kể cả ban ngày) -> cửa sổ lệch tối đa N giờ, giảm rủi ro oversell.
+AUTO_RECONCILE_EVERY_HOURS = float(_get("AUTO_RECONCILE_EVERY_HOURS", "4") or 4)
 # Thay đổi 1 mã LỚN hơn số này -> KHÔNG tự ghi, chỉ cảnh báo (đề phòng bất thường).
 AUTO_RECONCILE_MAX_CHANGE = float(_get("AUTO_RECONCILE_MAX_CHANGE", "2000") or 2000)
 

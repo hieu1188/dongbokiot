@@ -111,24 +111,27 @@ def run(auto_apply=True):
 
 
 def _due(now) -> bool:
-    if not config.AUTO_RECONCILE or not config.AUTO_RECONCILE_AT:
+    if not config.AUTO_RECONCILE or config.AUTO_RECONCILE_EVERY_HOURS <= 0:
         return False
-    vn = _epoch_to_vn(now)
-    if vn.strftime("%H:%M") < config.AUTO_RECONCILE_AT:
-        return False
-    return store.get_meta("last_auto_reconcile") != vn.strftime("%Y-%m-%d")
+    last = store.get_meta("last_auto_reconcile_ts")
+    last = float(last) if last else 0
+    return (now - last) >= config.AUTO_RECONCILE_EVERY_HOURS * 3600
 
 
 def loop():
-    """Vòng lặp nền: mỗi ngày lúc AUTO_RECONCILE_AT chạy reconcile có xác minh."""
+    """Vòng lặp nền: mỗi AUTO_RECONCILE_EVERY_HOURS giờ chạy reconcile có xác minh.
+    Lần đầu chạy sau đúng 1 chu kỳ kể từ khởi động (tránh chạy ngay lúc vừa deploy)."""
     store.init_db()
-    print(f"✔ Auto-reconcile (xác minh) mỗi ngày lúc {config.AUTO_RECONCILE_AT}, "
+    # Đặt mốc = now khi khởi động -> lần chạy đầu sau đúng 1 chu kỳ.
+    if not store.get_meta("last_auto_reconcile_ts"):
+        store.set_meta("last_auto_reconcile_ts", time.time())
+    print(f"✔ Auto-reconcile (xác minh) mỗi {config.AUTO_RECONCILE_EVERY_HOURS:g}h, "
           f"auto_apply=True, trần đổi {config.AUTO_RECONCILE_MAX_CHANGE:g}.", flush=True)
     while True:
         try:
             if _due(time.time()):
                 run(auto_apply=True)
-                store.set_meta("last_auto_reconcile", _epoch_to_vn(time.time()).strftime("%Y-%m-%d"))
+                store.set_meta("last_auto_reconcile_ts", time.time())
         except Exception as e:  # noqa
-            print(f"[RECONCILE-ĐÊM] lỗi: {e}", flush=True)
+            print(f"[RECONCILE] lỗi: {e}", flush=True)
         time.sleep(120)

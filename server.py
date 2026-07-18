@@ -120,7 +120,7 @@ def _startup():
     if config.AUTO_RECONCILE:
         import verified_reconcile
         threading.Thread(target=verified_reconcile.loop, daemon=True, name="auto-reconcile").start()
-        print(f"Auto-reconcile CÓ XÁC MINH mỗi ngày lúc {config.AUTO_RECONCILE_AT}.")
+        print(f"Auto-reconcile CÓ XÁC MINH mỗi {config.AUTO_RECONCILE_EVERY_HOURS:g}h.")
     if config.ENABLE_SCHEDULER:
         import scheduler
         threading.Thread(target=scheduler.loop, daemon=True, name="scheduler").start()
