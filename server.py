@@ -117,6 +117,10 @@ def _startup():
         threading.Thread(target=consistency.full_loop, daemon=True, name="full-scan").start()
         print(f"Quét TOÀN KHO 2 tài khoản mỗi {config.FULL_CHECK_HOURS:g}h "
               f"(báo cáo mã lệch + trang /drift).")
+    if config.AUTO_RECONCILE:
+        import verified_reconcile
+        threading.Thread(target=verified_reconcile.loop, daemon=True, name="auto-reconcile").start()
+        print(f"Auto-reconcile CÓ XÁC MINH mỗi ngày lúc {config.AUTO_RECONCILE_AT}.")
     if config.ENABLE_SCHEDULER:
         import scheduler
         threading.Thread(target=scheduler.loop, daemon=True, name="scheduler").start()

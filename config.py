@@ -123,6 +123,14 @@ FULL_CHECK_HOURS = float(_get("FULL_CHECK_HOURS", "2") or 2)
 # Số mã lệch tối đa liệt kê trong tin Telegram (còn lại xem ở trang /drift).
 FULL_REPORT_MAX = int(_get("FULL_REPORT_MAX", "25") or 25)
 
+# --- AUTO-RECONCILE CÓ XÁC MINH (bù lệch tích tụ do webhook mất sự kiện) ---
+# Mỗi ngày lúc AUTO_RECONCILE_AT (giờ VN "HH:MM"), quét toàn kho + XÁC MINH bằng chứng từ
+# (nhập/trả -> lấy cao; mất đơn bán -> lấy MIN chống oversell) rồi tự bù. true = bật.
+AUTO_RECONCILE = _get("AUTO_RECONCILE", "true").lower() != "false"
+AUTO_RECONCILE_AT = _get("AUTO_RECONCILE_AT", "22:10")
+# Thay đổi 1 mã LỚN hơn số này -> KHÔNG tự ghi, chỉ cảnh báo (đề phòng bất thường).
+AUTO_RECONCILE_MAX_CHANGE = float(_get("AUTO_RECONCILE_MAX_CHANGE", "2000") or 2000)
+
 # --- Tự kiểm webhook: KiotViet hay tự TẮT webhook khi giao dịch tới server lỗi ---
 # Cứ mỗi WEBHOOK_CHECK_MINUTES phút, kiểm isActive; nếu bị tắt -> tự bật lại + báo.
 # 0 = tắt việc tự kiểm.
