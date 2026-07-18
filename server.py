@@ -121,6 +121,11 @@ def _startup():
         import verified_reconcile
         threading.Thread(target=verified_reconcile.loop, daemon=True, name="auto-reconcile").start()
         print(f"Auto-reconcile CÓ XÁC MINH mỗi {config.AUTO_RECONCILE_EVERY_HOURS:g}h.")
+    if config.TRUTH_SYNC:
+        import truth_sync
+        threading.Thread(target=truth_sync.loop, daemon=True, name="truth-sync").start()
+        print(f"Truth-sync (đọc chứng từ) mỗi {config.AUTO_RECONCILE_EVERY_HOURS:g}h "
+              f"(apply={config.TRUTH_SYNC_APPLY}).")
     if config.ENABLE_SCHEDULER:
         import scheduler
         threading.Thread(target=scheduler.loop, daemon=True, name="scheduler").start()
@@ -476,6 +481,27 @@ def _drift_page(base, body, secret):
     <h2>📊 Báo cáo lệch tồn KV1 ↔ KV2 (quét toàn kho)</h2>
     {body}
     </body></html>""")
+
+
+@app.get("/reanchor/{secret}", response_class=HTMLResponse)
+def reanchor(secret: str):
+    """NEO LẠI truth-sync = trạng thái tồn hiện tại (dùng sau khi kiểm kho + đồng bộ tay)."""
+    if secret != config.WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+    import truth_sync
+    anchor = truth_sync.set_anchor()
+    return HTMLResponse(
+        f"""<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;margin:30px">
+        <h2>✅ Đã neo lại truth-sync</h2>
+        <p>Đã lấy trạng thái tồn hiện tại làm mốc mới ({len(anchor)} mã đang khớp).
+        Từ giờ hệ thống tính chứng từ (bán/trả/nhập) kể từ mốc này.</p>
+        <p style="color:#a15c00">Lưu ý: neo lại nghĩa là "tin tồn hiện tại là ĐÚNG" — chỉ làm
+        sau khi bạn đã kiểm kho + đồng bộ 2 KV bằng nhau.</p>
+        <p><a href="/drift/{esc_secret(secret)}">← Báo cáo lệch</a></p></body>""")
+
+
+def esc_secret(s):
+    return (str(s) if s else "").replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
 
 
 def _url_q(s):

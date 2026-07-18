@@ -132,6 +132,12 @@ AUTO_RECONCILE_EVERY_HOURS = float(_get("AUTO_RECONCILE_EVERY_HOURS", "4") or 4)
 # Thay đổi 1 mã LỚN hơn số này -> KHÔNG tự ghi, chỉ cảnh báo (đề phòng bất thường).
 AUTO_RECONCILE_MAX_CHANGE = float(_get("AUTO_RECONCILE_MAX_CHANGE", "2000") or 2000)
 
+# --- TRUTH-SYNC (đồng bộ theo CHỨNG TỪ - "đọc hóa đơn") ---
+# Bật vòng lặp truth_sync (đọc bán/trả/nhập, neo, tự bù đơn sót). true = bật.
+TRUTH_SYNC = _get("TRUTH_SYNC", "true").lower() != "false"
+# true = truth_sync ĐƯỢC GHI tồn; false = chỉ BÁO CÁO (để kiểm chứng trước khi cho ghi).
+TRUTH_SYNC_APPLY = _get("TRUTH_SYNC_APPLY", "false").lower() == "true"
+
 # --- Tự kiểm webhook: KiotViet hay tự TẮT webhook khi giao dịch tới server lỗi ---
 # Cứ mỗi WEBHOOK_CHECK_MINUTES phút, kiểm isActive; nếu bị tắt -> tự bật lại + báo.
 # 0 = tắt việc tự kiểm.
