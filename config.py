@@ -72,7 +72,10 @@ RESYNC_READ_SOURCE = _get("RESYNC_READ_SOURCE", "true").lower() != "false"
 # (chung 1 kho). Nên trong cửa sổ COLLAPSE_WINDOW giây, các mã cùng SP cha chỉ GHI 1 LẦN,
 # các mã anh em còn lại BỎ QUA (không tạo phiếu thừa). An toàn: không bỏ sót vì chúng
 # chung 1 pool tồn. true = bật.
-MULTIUNIT_COLLAPSE = _get("MULTIUNIT_COLLAPSE", "true").lower() != "false"
+# ⚠ ĐÃ TẮT (2026-07-19): gộp đa đơn vị BỎ SÓT sync mã anh em (KiotViet không cascade lại)
+# -> gây DRIFT HỆ THỐNG cho mọi SP đa đơn vị. Tắt để mỗi mã anh em được sync đủ (đúng tồn
+# quan trọng hơn giảm phiếu). Bật lại chỉ khi đã xử được cascade.
+MULTIUNIT_COLLAPSE = _get("MULTIUNIT_COLLAPSE", "false").lower() == "true"
 MULTIUNIT_COLLAPSE_WINDOW = float(_get("MULTIUNIT_COLLAPSE_WINDOW", "25") or 25)
 
 # --- CẢNH BÁO SỚM: 1 mã đồng bộ liên tục quá nhiều lần trong thời gian ngắn ---
