@@ -126,7 +126,9 @@ FULL_REPORT_MAX = int(_get("FULL_REPORT_MAX", "25") or 25)
 # --- AUTO-RECONCILE CÓ XÁC MINH (bù lệch tích tụ do webhook mất sự kiện) ---
 # Mỗi ngày lúc AUTO_RECONCILE_AT (giờ VN "HH:MM"), quét toàn kho + XÁC MINH bằng chứng từ
 # (nhập/trả -> lấy cao; mất đơn bán -> lấy MIN chống oversell) rồi tự bù. true = bật.
-AUTO_RECONCILE = _get("AUTO_RECONCILE", "true").lower() != "false"
+# TẮT verified_reconcile cũ khi đã bật truth-sync (tránh 2 bộ ghi đè nhau). Giữ lại code
+# làm dự phòng — bật lại bằng AUTO_RECONCILE=true nếu cần.
+AUTO_RECONCILE = _get("AUTO_RECONCILE", "false").lower() == "true"
 # Chạy mỗi N giờ (kể cả ban ngày) -> cửa sổ lệch tối đa N giờ, giảm rủi ro oversell.
 AUTO_RECONCILE_EVERY_HOURS = float(_get("AUTO_RECONCILE_EVERY_HOURS", "4") or 4)
 # Thay đổi 1 mã LỚN hơn số này -> KHÔNG tự ghi, chỉ cảnh báo (đề phòng bất thường).
@@ -135,8 +137,9 @@ AUTO_RECONCILE_MAX_CHANGE = float(_get("AUTO_RECONCILE_MAX_CHANGE", "2000") or 2
 # --- TRUTH-SYNC (đồng bộ theo CHỨNG TỪ - "đọc hóa đơn") ---
 # Bật vòng lặp truth_sync (đọc bán/trả/nhập, neo, tự bù đơn sót). true = bật.
 TRUTH_SYNC = _get("TRUTH_SYNC", "true").lower() != "false"
-# true = truth_sync ĐƯỢC GHI tồn; false = chỉ BÁO CÁO (để kiểm chứng trước khi cho ghi).
-TRUTH_SYNC_APPLY = _get("TRUTH_SYNC_APPLY", "false").lower() == "true"
+# true = truth_sync ĐƯỢC GHI tồn; false = chỉ BÁO CÁO. ĐÃ KIỂM CHỨNG (2026-07-19: khớp
+# hệ cũ + khớp hóa đơn thật) -> BẬT GHI THẬT, thay verified_reconcile.
+TRUTH_SYNC_APPLY = _get("TRUTH_SYNC_APPLY", "true").lower() != "false"
 
 # --- Tự kiểm webhook: KiotViet hay tự TẮT webhook khi giao dịch tới server lỗi ---
 # Cứ mỗi WEBHOOK_CHECK_MINUTES phút, kiểm isActive; nếu bị tắt -> tự bật lại + báo.
